@@ -1,32 +1,47 @@
 import math
-from typing import Tuple
 
-import torch
-from torch import nn, Tensor, tensor_split
-import torch.nn.functional as F
-from torch.nn import TransformerEncoder, TransformerEncoderLayer, TransformerDecoder, TransformerDecoderLayer
-from torch.utils.data import Dataset
+from torch import nn, Tensor, tensor_split  # type: ignore
+import torch.nn.functional as F  # type: ignore
+from torch.nn import TransformerEncoder, TransformerEncoderLayer, TransformerDecoder, TransformerDecoderLayer  # type: ignore
+from torch.utils.data import Dataset  # type: ignore
 
 
 class TransformerModel(nn.Module):
-    def __init__(self, ntoken: int, d_model: int, nhead: int, d_hid: int,
-                 nlayers: int, dropout: float = 0.5):
+    def __init__(
+        self,
+        ntoken: int,
+        d_model: int = 512,
+        nhead: int = 8,
+        nlayers: int = 6,
+        dropout: float = 0.1,
+    ):
         super().__init__()
         self.d_model = d_model
-        self.model_type = 'Transformer'
-        
-        
-        self.embedding = nn.Embedding(ntoken, d_model)
+        self.model_type = "Transformer"
+
         self.transformer = nn.Transformer(
             d_model=d_model,
             nhead=nhead,
             num_decoder_layers=nlayers,
             num_encoder_layers=nlayers,
-            dropout=dropout
+            dropout=dropout,
+            batch_first=True,
         )
 
-    def forward(self, src: Tensor, tgt: Tensor) -> Tensor:
-        # src = self.embedding(src) * math.sqrt(self.d_model)
-        # tgt = self.embedding(tgt) * math.sqrt(self.d_model)
-        
-        return self.transformer(src, tgt)
+        self.enoder_prenet = nn.Sequential(
+            nn.Linear(256, 256), nn.ReLU(), nn.Linear(256, 256), nn.ReLU()
+        )
+        self.decoder_prenet = nn.Sequential(
+            nn.Linear(256, 256), nn.ReLU(), nn.Linear(256, 256), nn.ReLU()
+        )
+        self.postnet = nn.Sequential(
+            nn.Linear(256, 256), nn.ReLU(), nn.Linear(256, 256), nn.ReLU()
+        )
+
+    def forward(self, src: Tensor, tgt: Tensor, tgt_mask: Tensor) -> Tensor:
+        # tgt = self.enoder_prenet(tgt)
+        # src = self.decoder_prenet(src)
+        out = self.transformer(src, tgt, tgt_mask=tgt_mask)
+
+        # out = self.postnet(out)
+        return out
