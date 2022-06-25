@@ -44,7 +44,7 @@ def spectrogram_to_image(transform: np.ndarray, name) -> None:
 
 
 def spectrogram_to_audio(arr: np.ndarray, name: str, hop_length: int, sr: int) -> None:
-    audio = librosa.core.istft(arr, hop_length=hop_length)
+    audio = librosa.core.istft(np.swapaxes(arr, 0, 1), hop_length=hop_length)
     waveWrite(name, sr, audio)
 
 
@@ -84,7 +84,7 @@ def main() -> None:
 
     model.train()
 
-    for i in range(2000):
+    for i in range(100000):
         pred = model(input_tensor, output_tensor, tgt_mask)
         # pred = pred.permute(1, 2, 0)
         loss = loss_fn(pred, output_tensor)
@@ -94,14 +94,15 @@ def main() -> None:
 
         if i % 500 == 0:
             spec = predict(model, input_tensor, 109, 256)
-            spectrogram_to_image(spec, "img1")
-            spectrogram_to_audio(spec, "TRANSFORMED.wav", 128, 22050)
+            spectrogram_to_image(pred.detach().cpu().squeeze().numpy(), "img1")
+            spectrogram_to_audio(
+                pred.detach().cpu().squeeze().numpy(), "TRANSFORMED.wav", 128, 22050
+            )
+            torch.save(model.state_dict(), "model")
 
         opt.zero_grad()
         loss.backward()
         opt.step()
-
-    torch.save(model.state_dict(), "model")
 
 
 if __name__ == "__main__":
