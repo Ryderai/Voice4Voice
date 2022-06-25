@@ -8,7 +8,13 @@ import torch.nn as nn
 from model import TransformerModel
 import matplotlib.pyplot as plt
 
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE = (
+    "cuda"
+    if torch.cuda.is_available()
+    else "mps"
+    if torch.backends.mps.is_available()
+    else "cpu"
+)
 
 
 def audio_to_spectrogram(name: str) -> np.ndarray:
@@ -91,13 +97,20 @@ def main() -> None:
 
         if i % 100 == 0:
             print(loss.item())
+            print(
+                torch.autograd.grad(
+                    loss, model.parameters(), allow_unused=True, retain_graph=True
+                )
+            )
 
         if i % 500 == 0:
             spec = predict(model, input_tensor, 109, 256)
-            spectrogram_to_image(pred.detach().cpu().squeeze().numpy(), "img1")
-            spectrogram_to_audio(
-                pred.detach().cpu().squeeze().numpy(), "TRANSFORMED.wav", 128, 22050
-            )
+            # spectrogram_to_image(pred.detach().cpu().squeeze().numpy(), "img1")
+            # spectrogram_to_audio(
+            #     pred.detach().cpu().squeeze().numpy(), "TRANSFORMED.wav", 128, 22050
+            # )
+            spectrogram_to_image(spec, "img1")
+            spectrogram_to_audio(spec, "TRANSFORMED.wav", 128, 22050)
             torch.save(model.state_dict(), "model")
 
         opt.zero_grad()
