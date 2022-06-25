@@ -12,7 +12,7 @@ DEVICE = (
     "cuda"
     if torch.cuda.is_available()
     else "mps"
-    if torch.backends.mps.is_available()
+    if torch.backends.mps.is_available()  # type: ignore
     else "cpu"
 )
 
@@ -50,7 +50,11 @@ def spectrogram_to_image(transform: np.ndarray, name) -> None:
 
 
 def spectrogram_to_audio(arr: np.ndarray, name: str, hop_length: int, sr: int) -> None:
-    audio = librosa.core.istft(np.swapaxes(arr, 0, 1), hop_length=hop_length)
+    print(arr.min())
+    # arr -= arr.min()
+    audio = librosa.core.istft(
+        np.swapaxes(arr, 0, 1).astype(np.int32), hop_length=hop_length
+    )
     waveWrite(name, sr, audio)
 
 
@@ -76,7 +80,8 @@ def predict(model: TransformerModel, input_tensor, sequence_length, model_dim):
 def main() -> None:
     _input = audio_to_spectrogram("HiArtin.wav")
     output = audio_to_spectrogram("HiRyder.wav")
-
+    spectrogram_to_audio(_input, "inputInvereted.wav", 128, 22050)
+    spectrogram_to_audio(output, "outputInvereted.wav", 128, 22050)
     spectrogram_to_image(_input, "in")
     spectrogram_to_image(output, "out")
 
@@ -84,7 +89,7 @@ def main() -> None:
     output_tensor = torch.Tensor(output).to(DEVICE).unsqueeze(0)
     tgt_mask = get_tgt_mask(output_tensor.size(1)).to(DEVICE)
 
-    model = TransformerModel(109, 256, 1, dropout=0).to(DEVICE)
+    model = TransformerModel(DEVICE, 109, 256, 1, dropout=0).to(DEVICE)
     opt = torch.optim.Adam(model.parameters(), lr=3e-4)
     loss_fn = nn.MSELoss()
 
@@ -97,11 +102,11 @@ def main() -> None:
 
         if i % 100 == 0:
             print(loss.item())
-            print(
-                torch.autograd.grad(
-                    loss, model.parameters(), allow_unused=True, retain_graph=True
-                )
-            )
+            # print(
+            #     torch.autograd.grad(
+            #         loss, model.parameters(), allow_unused=True, retain_graph=True
+            #     )
+            # )
 
         if i % 500 == 0:
             spec = predict(model, input_tensor, 109, 256)
