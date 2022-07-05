@@ -14,6 +14,7 @@ from time import sleep
 import tkinter as tk
 import tkinter.ttk as ttk
 import matplotlib
+import matplotlib.figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 import numpy as np
@@ -21,7 +22,7 @@ import librosa
 import pyaudio
 import wave
 
-from typing import Callable
+from typing import Callable, List
 
 # def file_handler_decorator(function):
 #         def wrapper(*args, **kwargs):
@@ -33,8 +34,11 @@ from typing import Callable
 #                 raise NotImplementedError(f'Error: {e}\nHandle all other errors.')
 #         return wrapper
 
-def threading_decorator(function: Callable) -> None:
-    def wrapper(*args, **kwargs):
+def threading_decorator(function: Callable[..., None]) -> Callable[..., None]:
+    """
+    Utility function to spawn processes on a separate thread.
+    """
+    def wrapper(*args, **kwargs) -> None:
         Thread(target = function, daemon = True, args = args, kwargs = kwargs).start()
     return wrapper
 
@@ -55,13 +59,17 @@ class MainWindow(ttk.Frame):
         The path the directory of currently recorded audio for each word.
     """
 
-    words: list[str]
+    words: List[str]
     word_index: int = 0
     reference_audio_path: str = 'Reference'
     recording_audio_path: str = 'Recording'
 
-    def __init__(self, parent, *args, **kwargs):
-        ttk.Frame.__init__(self, parent, *args, **kwargs)
+    def __init__(self, parent: tk.Tk, *args, **kwargs):
+        """
+        Load words, create audio streams, and initialize UI.
+        """
+        
+        super().__init__(parent, *args, **kwargs)
 
         self.words = self.loadText('1000words.txt')
 
@@ -101,24 +109,24 @@ class MainWindow(ttk.Frame):
         text = ttk.Label(top_frame, textvariable = self.text_var)
         text.pack(padx = 10, pady = 10)
 
-        next_buttonn = ttk.Button(bot_frame, text = 'Next',command = self.nextWord)
+        next_buttonn = ttk.Button(bot_frame, text = 'Next',command = self.next_word)
         next_buttonn.pack(side = tk.RIGHT, padx = 10, pady = 10)
-        prev_button = ttk.Button(bot_frame, text = 'Previous', command = self.previousWord)
+        prev_button = ttk.Button(bot_frame, text = 'Previous', command = self.prev_word)
         prev_button.pack(side = tk.LEFT, padx = 10, pady = 10)
         
         self.record_var = tk.StringVar()
         self.record_var.set("Record")
-        replayReferenceButton = ttk.Button(mid_frame, text = 'Play Reference', command = self.playReference)
+        replayReferenceButton = ttk.Button(mid_frame, text = 'Play Reference', command = self.play_reference)
         replayReferenceButton.pack(side = tk.LEFT, padx = 10, pady = 10)
         self.recordButton = ttk.Button(mid_frame, textvariable = self.record_var, command = self.record)
         self.recordButton.pack(side = tk.LEFT, padx = 10, pady = 10)
-        replayOwnButton = ttk.Button(mid_frame, text = 'Play Your Voice', command = self.playRecording)
+        replayOwnButton = ttk.Button(mid_frame, text = 'Play Your Voice', command = self.play_recording)
         replayOwnButton.pack(side = tk.LEFT, padx = 10, pady = 10)
         # playBothButton = ttk.Button(mid_frame, text = 'Play Both')
         # playBothButton.pack(side = tk.LEFT, padx = 10, pady = 10)
 
         # fig = matplotlib.pyplot.specgram()
-        fig = matplotlib.figure.Figure(figsize=(4, 3), dpi=100)
+        fig = matplotlib.figure.Figure(figsize=(4, 3), dpi = 100) # type: ignore
        
         self.subplotReference = fig.add_subplot(121)
         self.subplotRecording = fig.add_subplot(122)
@@ -141,26 +149,49 @@ class MainWindow(ttk.Frame):
         # canvas.get_tk_widget().pack(side= tk.LEFT, padx = 10, pady = 10)
 
         
-    def nextWord(self):
+    def next_word(self):
+        """
+        Changes the current word to the next one. Updates the UI.        
+        """
+        
         self.word_index += 1
         self.text_var.set(self.words[self.word_index])
         self.update_reference_plot()
         self.update_recording_plot()
 
-    def previousWord(self):
+    def prev_word(self):
+        """
+        Changes the current word to the previous one. Updates the UI. 
+        """
+        
         self.word_index -= 1
         self.text_var.set(self.words[self.word_index])
         self.update_reference_plot()
         self.update_recording_plot()
     
     @staticmethod
-    def loadText(file_name):
+    def loadText(file_name: str) -> List[str]:
+        """
+        Load words from words file in the form of a list of strings.
+        """
+        
         with open(file_name, 'r') as f: 
             return f.readlines()
 
     # @file_handler_decorator
     @threading_decorator
-    def playFile(self,file_name):
+    def play_file(self, file_name: str) -> None:
+        """
+        Plays the requested audio file.
+        
+        Intended for (.wav) files.
+        
+        Raises
+        ------
+        NotImplementedError
+            If any error other than a FileNotFoundError is raised.
+        """
+        
         try:
             with wave.open(file_name) as wf:
                 print(wf.getnchannels(),wf.getframerate(),self.p.get_format_from_width(wf.getsampwidth()))
@@ -174,14 +205,28 @@ class MainWindow(ttk.Frame):
             raise NotImplementedError(f'Error: {e}\nHandle all other errors.')
     
 
-    def playReference(self):
-        self.playFile(f'{self.reference_audio_path}/{self.word_index}.wav')
+    def play_reference(self) -> None:
+        """
+        Wrapper function for playing the reference audio file.
+        """
+        
+        self.play_file(f'{self.reference_audio_path}/{self.word_index}.wav')
 
-    def playRecording(self):
-        self.playFile(f'{self.recording_audio_path}/{self.word_index}.wav')
+    def play_recording(self) -> None:
+        """
+        Wrapper function for playing the recording audio file.
+        """
+        
+        self.play_file(f'{self.recording_audio_path}/{self.word_index}.wav')
             
     @threading_decorator        
-    def record(self):
+    def record(self) -> None:
+        """
+        Starts recording (one second).
+        
+        Updates the UI, handles file IO, and plays back the recording.
+        """
+        
         self.record_var.set("Recording")
         self.recordButton.config(command = lambda: None)
         self.stream_in.start_stream()
@@ -198,7 +243,7 @@ class MainWindow(ttk.Frame):
             wf.setsampwidth(2) # 2 Bytes per sample (pyaudio.paInt16)
             wf.writeframes(b''.join(recording_frames))
         
-        self.playRecording()
+        self.play_recording()
         self.update_recording_plot()
 
         self.stream_in.stop_stream()
@@ -206,10 +251,19 @@ class MainWindow(ttk.Frame):
         self.recordButton.config(command = self.record)
 
    
-    def update_reference_plot(self):
+    def update_reference_plot(self) -> None:
+        """
+        Update the reference plot (UI).
+        
+        Raises
+        ------
+        NotImplementedError
+            If any error other than a FileNotFoundError is raised.
+        """
+        
         try:
-            y, sr = librosa.load(f'{self.reference_audio_path}/{self.word_index}.wav')
-            self.subplotReference.specgram(y,Fs=512)
+            y, _ = librosa.load(f'{self.reference_audio_path}/{self.word_index}.wav')
+            self.subplotReference.specgram(y, Fs=512)
         except FileNotFoundError:
             print(f'No {self.reference_audio_path} audio found') # no action is needed
             self.subplotReference.clear()
@@ -221,10 +275,19 @@ class MainWindow(ttk.Frame):
         self.canvas.draw_idle()
 
     
-    def update_recording_plot(self):
+    def update_recording_plot(self) -> None:
+        """
+        Update the recording plot (UI).
+        
+        Raises
+        ------
+        NotImplementedError
+            If any error other than a FileNotFoundError is raised.
+        """
+        
         try:
-            y, sr = librosa.load(f'{self.recording_audio_path}/{self.word_index}.wav')
-            self.subplotRecording.specgram(y,Fs=512)
+            y, _ = librosa.load(f'{self.recording_audio_path}/{self.word_index}.wav')
+            self.subplotRecording.specgram(y, Fs=512)
         except FileNotFoundError:
             print(f'No {self.recording_audio_path} audio found') # no action is needed
             self.subplotRecording.clear()
@@ -236,12 +299,22 @@ class MainWindow(ttk.Frame):
         self.canvas.draw_idle()
 
     @threading_decorator
-    def _timeout(self,duration: int) -> None:
+    def _timeout(self, duration: int) -> None:
+        """
+        Helper function to ensure that the program exits even if cleanup fails.
+        
+        *Intended for internal use only*
+        """
+        
         sleep(duration)
         print("Streams NOT closed. TIMED OUT")
         exit()
         
     def close(self):
+        """
+        Exit program.
+        """
+        
         self._timeout(5)
         self.stream_in.stop_stream()
         self.stream_in.close()
@@ -250,6 +323,7 @@ class MainWindow(ttk.Frame):
         self.parent.quit()
         self.parent.destroy()
         print("Streams closed")
+        
         exit()
 
 
@@ -258,6 +332,7 @@ if __name__ == '__main__':
     root.resizable(True, True)
     app = MainWindow(root)
     root.protocol('WM_DELETE_WINDOW', app.close)
+    
     try:
         app.mainloop()
     except KeyboardInterrupt:
