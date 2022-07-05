@@ -1,17 +1,27 @@
+"""
+Sound Reader UI
+
+A user interface for recording two voices saying the same words and displaying spectrograms for comparison.
+
+Artin Kim
+Adin Ackerman
+"""
+
 import os
 from threading import Thread
 from time import sleep
 
-import tkinter     as tk
+import tkinter as tk
 import tkinter.ttk as ttk
 import matplotlib
-import matplotlib.figure
-from   matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 import numpy as np
 import librosa
 import pyaudio
 import wave
+
+from typing import Callable
 
 # def file_handler_decorator(function):
 #         def wrapper(*args, **kwargs):
@@ -23,20 +33,37 @@ import wave
 #                 raise NotImplementedError(f'Error: {e}\nHandle all other errors.')
 #         return wrapper
 
-def threading_decorator(function):
+def threading_decorator(function: Callable) -> None:
     def wrapper(*args, **kwargs):
         Thread(target = function, daemon = True, args = args, kwargs = kwargs).start()
     return wrapper
 
 class MainWindow(ttk.Frame):
-    
+    """
+    The object wrapping the UI and logic, inherits ttk.Frame.
+
+    Attributes
+    ----------
+
+    words: list[str]
+        A list of words.
+    word_index: int
+        The index of the current word.
+    reference_audio_path: str
+        The path to the directory of prerecorded audio for each word.
+    recording_audio_path: str
+        The path the directory of currently recorded audio for each word.
+    """
+
+    words: list[str]
+    word_index: int = 0
+    reference_audio_path: str = 'Reference'
+    recording_audio_path: str = 'Recording'
+
     def __init__(self, parent, *args, **kwargs):
         ttk.Frame.__init__(self, parent, *args, **kwargs)
-        
-        self.word_index = 0
+
         self.words = self.loadText('1000words.txt')
-        self.reference_audio_path = 'Reference'
-        self.recording_audio_path = 'Recording'
 
         if not os.path.isdir(self.recording_audio_path):
             os.mkdir(self.recording_audio_path)
