@@ -61,8 +61,8 @@ class MainWindow(ttk.Frame):
 
     words: List[str]
     word_index: int = 0
-    reference_audio_path: str = 'Reference'
-    recording_audio_path: str = 'Recording'
+    reference_audio_path: str = 'Ryder'
+    recording_audio_path: str = 'Artin'
 
     def __init__(self, parent: tk.Tk, *args, **kwargs):
         """

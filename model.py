@@ -30,7 +30,10 @@ from torch.utils.data import Dataset  # type: ignore
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, dim_model, dropout_p, max_len, device):
+    dropout: nn.Dropout
+    pos_encoding: Tensor
+
+    def __init__(self, dim_model: int, dropout_p: float, max_len: int, device: str):
         super().__init__()
         # Modified version from: https://pytorch.org/tutorials/beginner/transformer_tutorial.html
         # max_len determines how far the position can have an effect on a token (window)
