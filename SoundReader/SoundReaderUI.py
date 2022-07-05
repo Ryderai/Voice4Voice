@@ -2,11 +2,11 @@ import os
 from threading import Thread
 from time import sleep
 
-import tkinter as tk
+import tkinter     as tk
 import tkinter.ttk as ttk
 import matplotlib
-from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg, 
-NavigationToolbar2Tk)
+import matplotlib.figure
+from   matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 import numpy as np
 import librosa
