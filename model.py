@@ -1,4 +1,5 @@
 import math
+from typing import Optional
 
 import torch
 from torch import nn, Tensor, tensor_split  # type: ignore
@@ -52,14 +53,13 @@ class PositionalEncoding(nn.Module):
         # PE(pos, 2i + 1) = cos(pos/1000^(2i/dim_model))
         self.pos_encoding[:, 1::2] = torch.cos(positions_list * division_term)
 
-        # Saving buffer (same as parameter without gradients needed)
-        self.pos_encoding = self.pos_encoding.unsqueeze(0).transpose(0, 1).to(device)
+        # .expand(3, max_len, dim_model)??
+        self.pos_encoding = self.pos_encoding.to(device)
 
     def forward(self, token_embedding: Tensor) -> Tensor:
         # Residual connection + pos encoding
-        return self.dropout(
-            token_embedding + self.pos_encoding[: token_embedding.size(0), :]
-        )
+        # print(token_embedding.shape, self.pos_encoding.shape)
+        return self.dropout(token_embedding + self.pos_encoding)
 
 
 class TransformerModel(nn.Module):
@@ -79,12 +79,7 @@ class TransformerModel(nn.Module):
         self.model_type = "Transformer"
 
         self.decoder_prenet = nn.Sequential(
-            nn.Dropout(dropout),
-            nn.Linear(d_model, d_model),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(d_model, d_model),
-            nn.ReLU(),
+            nn.Dropout(dropout), nn.Linear(d_model, d_model), nn.ReLU()
         )
 
         self.pos_embedding = nn.Embedding(ntoken, d_model)
@@ -107,22 +102,8 @@ class TransformerModel(nn.Module):
         self.pos_emb_residual = PositionalEncoding(d_model, dropout, ntoken, device)
 
     def forward(self, src: Tensor, tgt: Tensor, tgt_mask: Tensor) -> Tensor:
-        # positions = (
-        #     torch.arange(0, self.ntoken)
-        #     .expand(src.shape[0], self.ntoken)
-        #     .to(self.device)
-        # )
-
-        # src = torch.cat(
-        #     (src, self.pos_embedding(positions)),
-        #     dim=2,
-        # )
-
-        # tgt = torch.cat(
-        #     (tgt, self.pos_embedding(positions)),
-        #     dim=2,
-        # )
-
+        src = self.decoder_prenet(src)
+        tgt = self.decoder_prenet(tgt)
         src = self.pos_emb_residual(src)
         tgt = self.pos_emb_residual(tgt)
 
