@@ -62,7 +62,7 @@ class PositionalEncoding(nn.Module):
     def forward(self, token_embedding: Tensor) -> Tensor:
         # Residual connection + pos encoding
         # print(token_embedding.shape, self.pos_encoding.shape)
-        return self.dropout(token_embedding + self.pos_encoding)
+        return self.dropout(token_embedding*math.sqrt(self.dim_model) + self.pos_encoding)
 
 
 class TransformerModel(nn.Module):
