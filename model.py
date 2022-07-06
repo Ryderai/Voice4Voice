@@ -39,6 +39,7 @@ class PositionalEncoding(nn.Module):
         # max_len determines how far the position can have an effect on a token (window)
 
         # Info
+        self.dim_model = dim_model
         self.dropout = nn.Dropout(dropout_p)
 
         # Encoding - From formula
@@ -62,7 +63,9 @@ class PositionalEncoding(nn.Module):
     def forward(self, token_embedding: Tensor) -> Tensor:
         # Residual connection + pos encoding
         # print(token_embedding.shape, self.pos_encoding.shape)
-        return self.dropout(token_embedding*math.sqrt(self.dim_model) + self.pos_encoding)
+        return self.dropout(
+            token_embedding * math.sqrt(self.dim_model) + self.pos_encoding
+        )
 
 
 class TransformerModel(nn.Module):
@@ -81,8 +84,13 @@ class TransformerModel(nn.Module):
         self.ntoken = ntoken
         self.model_type = "Transformer"
 
-        self.decoder_prenet = nn.Sequential(
-            nn.Dropout(dropout), nn.Linear(d_model, d_model), nn.ReLU()
+        self.prenet = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(d_model, d_model),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_model, d_model),
+            nn.ReLU(),
         )
 
         self.pos_embedding = nn.Embedding(ntoken, d_model)
@@ -105,8 +113,8 @@ class TransformerModel(nn.Module):
         self.pos_emb_residual = PositionalEncoding(d_model, dropout, ntoken, device)
 
     def forward(self, src: Tensor, tgt: Tensor, tgt_mask: Tensor) -> Tensor:
-        src = self.decoder_prenet(src)
-        tgt = self.decoder_prenet(tgt)
+        # src = self.prenet(src)
+        # tgt = self.prenet(tgt)
         src = self.pos_emb_residual(src)
         tgt = self.pos_emb_residual(tgt)
 
