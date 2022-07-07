@@ -93,6 +93,8 @@ class MainWindow(ttk.Frame):
 
         self.parent = parent
         self.pack(fill = tk.BOTH, expand=True)
+
+        self.parent.bind("<Button-1>", self.clip_specs)
         
         top_frame = ttk.Frame(self)
         top_frame.pack(side = tk.TOP, fill = tk.BOTH, padx = 10, pady = 10)
@@ -147,7 +149,38 @@ class MainWindow(ttk.Frame):
         # toolbar = NavigationToolbar2Tk(canvas, top_frame)
         # toolbar.update()
         # canvas.get_tk_widget().pack(side= tk.LEFT, padx = 10, pady = 10)
+    
+    def clip_specs(self, event):
+        x, y = event.x,event.y
+        print(x,y)
+        if x > 470 and x<770:
+            try:
+                data = []
+                file_name = f'{self.recording_audio_path}/{self.word_index}.wav'
+                with wave.open(file_name) as wf:
+                    # new_data = []
+                    data = wf.readframes(wf.getnframes())
+                    data = data[int(wf.getnframes()*((x-470)/300))*2:]
+                    # for i in range(0,44100,44100//1024):
+                    #     if i > int(44100*(x-470/300)): 
+                    #         new_data.append(wf.readframes(1024))
+                
+                open(file_name,'w').close()
 
+                with wave.open(file_name,'wb') as wf:
+                    wf.setframerate(44100)
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2) # 2 Bytes per sample (pyaudio.paInt16)
+                    wf.writeframes(data)
+                
+                self.play_recording()
+                self.update_recording_plot()
+                # self.writeFile(,data)
+            except FileNotFoundError:
+                print(f'Can not find SM audio file') # no action is needed
+            except Exception as e:
+                raise NotImplementedError(f'Error: {e}\nHandle all other errors.')
+        print(x,y)
         
     def next_word(self):
         """
@@ -194,11 +227,14 @@ class MainWindow(ttk.Frame):
         
         try:
             with wave.open(file_name) as wf:
-                print(wf.getnchannels(),wf.getframerate(),self.p.get_format_from_width(wf.getsampwidth()))
-                data = wf.readframes(1024)
-                while data:
-                    self.stream_out.write(data,1024)
-                    data = wf.readframes(1024)
+                #print(wf.getnchannels(),wf.getframerate(),self.p.get_format_from_width(wf.getsampwidth()))
+                # data = wf.readframes(1024)
+                
+                # print(len(data))
+                # while len(data)>=1024:
+                #     self.stream_out.write(data,1024)
+                #     data = wf.readframes(1024)
+                self.stream_out.write(wf.readframes(wf.getnframes()),wf.getnframes())
         except FileNotFoundError:
             print(f'Can not find {file_name} audio file') # no action is needed
         except Exception as e:
@@ -233,7 +269,14 @@ class MainWindow(ttk.Frame):
         
         recording_frames = (self.stream_in.read(1024) for _ in range(44100 // (1024 * 1)))
 
-        file_name = f'{self.recording_audio_path}/{self.word_index}.wav'
+        self.writeFile(f'{self.recording_audio_path}/{self.word_index}.wav',recording_frames)
+
+        self.stream_in.stop_stream()
+        self.record_var.set("Record")
+        self.recordButton.config(command = self.record)
+
+   
+    def writeFile(self,file_name,frames_data):
 
         open(file_name,'w').close()
 
@@ -241,16 +284,12 @@ class MainWindow(ttk.Frame):
             wf.setframerate(44100)
             wf.setnchannels(1)
             wf.setsampwidth(2) # 2 Bytes per sample (pyaudio.paInt16)
-            wf.writeframes(b''.join(recording_frames))
+            wf.writeframes(b''.join(frames_data))
         
         self.play_recording()
         self.update_recording_plot()
 
-        self.stream_in.stop_stream()
-        self.record_var.set("Record")
-        self.recordButton.config(command = self.record)
 
-   
     def update_reference_plot(self) -> None:
         """
         Update the reference plot (UI).
@@ -260,15 +299,14 @@ class MainWindow(ttk.Frame):
         NotImplementedError
             If any error other than a FileNotFoundError is raised.
         """
-        
+        self.subplotReference.clear()
+        self.subplotReference.axis("off")
+        self.subplotReference.set_title('Reference Voice')
         try:
             y, _ = librosa.load(f'{self.reference_audio_path}/{self.word_index}.wav')
             self.subplotReference.specgram(y, Fs=512)
         except FileNotFoundError:
             print(f'No {self.reference_audio_path} audio found') # no action is needed
-            self.subplotReference.clear()
-            self.subplotReference.axis("off")
-            self.subplotReference.set_title('Reference Voice')
         except Exception as e:
             raise NotImplementedError(f'Error: {e}\nHandle all other errors.')
             
@@ -284,15 +322,15 @@ class MainWindow(ttk.Frame):
         NotImplementedError
             If any error other than a FileNotFoundError is raised.
         """
-        
+        self.subplotRecording.clear()
+        self.subplotRecording.axis("off")
+        self.subplotRecording.set_title('Your Voice')
         try:
             y, _ = librosa.load(f'{self.recording_audio_path}/{self.word_index}.wav')
             self.subplotRecording.specgram(y, Fs=512)
         except FileNotFoundError:
             print(f'No {self.recording_audio_path} audio found') # no action is needed
-            self.subplotRecording.clear()
-            self.subplotRecording.axis("off")
-            self.subplotRecording.set_title('Your Voice')
+            
         except Exception as e:
             raise NotImplementedError(f'Error: {e}\nHandle all other errors.')
 
@@ -329,8 +367,9 @@ class MainWindow(ttk.Frame):
 
 if __name__ == '__main__':
     root = tk.Tk()
-    root.resizable(True, True)
+    root.resizable(False, False)
     app = MainWindow(root)
+    root.geometry("900x550")
     root.protocol('WM_DELETE_WINDOW', app.close)
     
     try:

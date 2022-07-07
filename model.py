@@ -69,8 +69,7 @@ class PositionalEncoding(nn.Module):
 
 
 class TransformerModel(nn.Module):
-    def __init__(
-        self,
+    def __init__(self,
         device,
         ntoken: int,
         d_model: int = 512,
