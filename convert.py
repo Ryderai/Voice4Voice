@@ -5,9 +5,12 @@ from PIL import Image
 import numpy as np
 import os
 import torch
+import pytorch_lightning as pl
+from pytorch_lightning.callbacks import RichProgressBar, ModelCheckpoint  # type: ignore
 from torch.utils.tensorboard import SummaryWriter  # type: ignore
 from scipy.io.wavfile import write as waveWrite
 import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
 from model import TransformerModel
 import matplotlib.pyplot as plt
 from rich.progress import track
@@ -30,6 +33,29 @@ SEQUENCE_LENGTH = 173
 BATCH_SIZE = 4
 
 
+class VoiceData(Dataset):
+    def __init__(self):
+        input_audio_files = os.listdir("SoundReader/Artin")
+        _input = [
+            torch.Tensor(audio_to_spectrogram(f"SoundReader/Artin/{voice}"))
+            for voice in input_audio_files[:-1]
+        ]
+        self.input_tensors = torch.stack(_input, dim=0)
+
+        output_audio_files = os.listdir("SoundReader/Ryder")
+        output = [
+            torch.Tensor(audio_to_spectrogram(f"SoundReader/Ryder/{voice}"))
+            for voice in output_audio_files[:-1]
+        ]
+        self.output_tensors = torch.stack(output, dim=0)
+
+    def __getitem__(self, index):
+        return self.input_tensors[index], self.output_tensors[index]
+
+    def __len__(self):
+        return self.input_tensors.shape[0]
+
+
 def audio_to_spectrogram(name: str) -> np.ndarray:
     y, _ = librosa.load(name)
     stft = librosa.core.stft(y=y, n_fft=512, hop_length=128)
@@ -44,15 +70,6 @@ def audio_to_spectrogram(name: str) -> np.ndarray:
     stft = stft[:SEQUENCE_LENGTH, :FREQUENCY_COUNT]
 
     return stft
-
-
-def get_tgt_mask(size) -> torch.Tensor:
-    mask = torch.tril(torch.ones(size, size) == 1)
-    mask = mask.float()
-    mask = mask.masked_fill(mask == 0, float("-inf"))
-    mask = mask.masked_fill(mask == 1, 0.0)
-
-    return mask
 
 
 def spectrogram_to_image(transform: np.ndarray, name: str) -> None:
@@ -106,79 +123,24 @@ def get_grad_norm(model_params):
 
 
 def main() -> None:
-    input_audio_files = os.listdir("SoundReader/Artin")
-    _input = [
-        torch.Tensor(audio_to_spectrogram(f"SoundReader/Artin/{voice}")).to(DEVICE)
-        for voice in input_audio_files[:-1]
-    ]
-    input_tensors = torch.stack(_input, dim=0).to(DEVICE)
 
-    output_audio_files = os.listdir("SoundReader/Ryder")
-    output = [
-        torch.Tensor(audio_to_spectrogram(f"SoundReader/Ryder/{voice}")).to(DEVICE)
-        for voice in output_audio_files[:-1]
-    ]
-    output_tensors = torch.stack(output, dim=0).to(DEVICE)
+    # inf = input_audio_files[-1]
+    # inf_numpy = audio_to_spectrogram(f"SoundReader/Artin/{inf}")
+    # inf_tensor = torch.Tensor(inf_numpy).unsqueeze(0).to(DEVICE)
 
-    inf = input_audio_files[-1]
-    inf_numpy = audio_to_spectrogram(f"SoundReader/Artin/{inf}")
-    inf_tensor = torch.Tensor(inf_numpy).unsqueeze(0).to(DEVICE)
+    # inf_out = output_audio_files[-1]
+    # inf_out_numpy = audio_to_spectrogram(f"SoundReader/Ryder/{inf_out}")
+    # inf_out_tensor = torch.Tensor(inf_out_numpy).unsqueeze(0).to(DEVICE)
 
-    inf_out = output_audio_files[-1]
-    inf_out_numpy = audio_to_spectrogram(f"SoundReader/Ryder/{inf_out}")
-    inf_out_tensor = torch.Tensor(inf_out_numpy).unsqueeze(0).to(DEVICE)
+    # spectrogram_to_image(inf_numpy, "inf_spec")
+    # spectrogram_to_image(inf_out_numpy, "inf_out_spec")
 
-    spectrogram_to_image(inf_numpy, "inf_spec")
-    spectrogram_to_image(inf_out_numpy, "inf_out_spec")
+    data = VoiceData()
+    dataloader = DataLoader(data, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
+    model = TransformerModel(SEQUENCE_LENGTH - 1, FREQUENCY_COUNT, 1, dropout=0.3)
 
-    tgt_mask = get_tgt_mask(input_tensors.size(1) - 1).to(DEVICE)
-
-    model = TransformerModel(
-        DEVICE, SEQUENCE_LENGTH - 1, FREQUENCY_COUNT, 1, dropout=0.3
-    ).to(DEVICE)
-    opt = torch.optim.Adam(model.parameters(), lr=3e-4)
-    loss_fn = nn.MSELoss()
-
-    writer = SummaryWriter()
-    print()
-    model.train()
-
-    NUM_BATCHES = len(input_audio_files) // BATCH_SIZE
-    for epoch in track(range(500), description="Epochs..."):
-        rand = torch.randperm(len(input_audio_files) - 1)
-        input_tensors = input_tensors[rand]
-        output_tensors = output_tensors[rand]
-
-        for i in range(NUM_BATCHES):
-            pred = model(
-                input_tensors[i * 4 : i * 4 + 4, :-1],
-                output_tensors[i * 4 : i * 4 + 4, :-1],
-                tgt_mask,
-            )
-            # pred = pred.permute(1, 2, 0)
-            loss = loss_fn(pred, output_tensors[i * 4 : i * 4 + 4, 1:])
-            writer.add_scalar("Loss/train", loss.item(), NUM_BATCHES * epoch + i)
-
-            opt.zero_grad()
-            loss.backward()
-            opt.step()
-
-        grad_norm = get_grad_norm(model.parameters())
-        writer.add_scalar("Grad/train", grad_norm, epoch)
-        print(loss.item(), grad_norm)  # type: ignore
-        if epoch % 10 == 0:
-            spec = predict(
-                model, inf_tensor[:, :-1], SEQUENCE_LENGTH - 1, FREQUENCY_COUNT
-            )
-            print(spec.shape, inf_out_tensor.squeeze(0)[:-1].shape)
-            inf_loss = loss_fn(
-                torch.Tensor(spec).to(DEVICE), inf_out_tensor.squeeze(0)[:-1]
-            )
-            print(f"INF LOSS = {inf_loss.item()}")
-            spectrogram_to_image(spec, "inf_predicted_spec")
-            spectrogram_to_audio(spec, "TRANSFORMED.wav", 129, 22050)
-
-            torch.save(model.state_dict(), "model")
+    trainer = pl.Trainer(callbacks=[RichProgressBar()], gpus=1, log_every_n_steps=11)
+    trainer.fit(model, dataloader)
 
 
 if __name__ == "__main__":

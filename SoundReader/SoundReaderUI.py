@@ -37,6 +37,11 @@ from typing import Callable, List
 def threading_decorator(function: Callable[..., None]) -> Callable[..., None]:
     """
     Utility function to spawn processes on a separate thread.
+    
+    Returns
+    -------
+    Callable[..., None]
+        The decorated function.
     """
     def wrapper(*args, **kwargs) -> None:
         Thread(target = function, daemon = True, args = args, kwargs = kwargs).start()
@@ -117,7 +122,7 @@ class MainWindow(ttk.Frame):
         prev_button.pack(side = tk.LEFT, padx = 10, pady = 10)
         
         self.record_var = tk.StringVar()
-        self.record_var.set("Record")
+        self.record_var.set('Record')
         replayReferenceButton = ttk.Button(mid_frame, text = 'Play Reference', command = self.play_reference)
         replayReferenceButton.pack(side = tk.LEFT, padx = 10, pady = 10)
         self.recordButton = ttk.Button(mid_frame, textvariable = self.record_var, command = self.record)
@@ -132,8 +137,8 @@ class MainWindow(ttk.Frame):
        
         self.subplotReference = fig.add_subplot(121)
         self.subplotRecording = fig.add_subplot(122)
-        self.subplotReference.axis("off")
-        self.subplotRecording.axis("off")
+        self.subplotReference.axis('off')
+        self.subplotRecording.axis('off')
         self.subplotReference.set_title('Reference Voice')
         self.subplotRecording.set_title('Your Voice')
         
@@ -182,7 +187,7 @@ class MainWindow(ttk.Frame):
                 raise NotImplementedError(f'Error: {e}\nHandle all other errors.')
         print(x,y)
         
-    def next_word(self):
+    def next_word(self) -> None:
         """
         Changes the current word to the next one. Updates the UI.        
         """
@@ -192,7 +197,7 @@ class MainWindow(ttk.Frame):
         self.update_reference_plot()
         self.update_recording_plot()
 
-    def prev_word(self):
+    def prev_word(self) -> None:
         """
         Changes the current word to the previous one. Updates the UI. 
         """
@@ -206,6 +211,11 @@ class MainWindow(ttk.Frame):
     def loadText(file_name: str) -> List[str]:
         """
         Load words from words file in the form of a list of strings.
+        
+        Returns
+        -------
+        List[str]
+            The list of each word in the file.
         """
         
         with open(file_name, 'r') as f: 
@@ -263,7 +273,7 @@ class MainWindow(ttk.Frame):
         Updates the UI, handles file IO, and plays back the recording.
         """
         
-        self.record_var.set("Recording")
+        self.record_var.set('Recording')
         self.recordButton.config(command = lambda: None)
         self.stream_in.start_stream()
         
@@ -345,7 +355,7 @@ class MainWindow(ttk.Frame):
         """
         
         sleep(duration)
-        print("Streams NOT closed. TIMED OUT")
+        print('Streams NOT closed. TIMED OUT')
         exit()
         
     def close(self):
@@ -360,7 +370,7 @@ class MainWindow(ttk.Frame):
         self.p.terminate()
         self.parent.quit()
         self.parent.destroy()
-        print("Streams closed")
+        print('Streams closed')
         
         exit()
 
