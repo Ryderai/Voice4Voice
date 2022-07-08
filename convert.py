@@ -7,6 +7,8 @@ import os
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import RichProgressBar, ModelCheckpoint  # type: ignore
+import ray.tune as tune
+from ray.tune.integration.pytorch_lightning import TuneReportCallback
 from torch.utils.tensorboard import SummaryWriter  # type: ignore
 from scipy.io.wavfile import write as waveWrite
 import torch.nn as nn
@@ -27,10 +29,9 @@ DEVICE = (
 )
 
 FREQUENCY_COUNT = 256
-START_TOKEN = np.fill(-2, (FREQUENCY_COUNT))
-STOP_TOKEN = np.fill(5, (FREQUENCY_COUNT))
+# START_TOKEN = np.fill(-2, (FREQUENCY_COUNT))
+# STOP_TOKEN = np.fill(5, (FREQUENCY_COUNT))
 SEQUENCE_LENGTH = 173
-BATCH_SIZE = 4
 
 
 class VoiceData(Dataset):
@@ -48,7 +49,7 @@ class VoiceData(Dataset):
             for voice in output_audio_files[:-1]
         ]
         self.output_tensors = torch.stack(output, dim=0)
-        
+
         inf = input_audio_files[-1]
         inf_numpy = audio_to_spectrogram(f"SoundReader/Artin/{inf}")
         inf_tensor = torch.Tensor(inf_numpy).unsqueeze(0).to(DEVICE)
@@ -130,13 +131,36 @@ def get_grad_norm(model_params):
     return total_norm
 
 
-def main() -> None:
+def train(config, gpus=1):
     data = VoiceData()
-    dataloader = DataLoader(data, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
-    model = TransformerModel(SEQUENCE_LENGTH - 1, FREQUENCY_COUNT, 1, dropout=0.3)
+    dataloader = DataLoader(
+        data, batch_size=config["batch_size"], shuffle=True, num_workers=0
+    )
+    model = TransformerModel(config, SEQUENCE_LENGTH - 1, FREQUENCY_COUNT)
 
-    trainer = pl.Trainer(callbacks=[RichProgressBar()], gpus=1, log_every_n_steps=11)
+    metrics = {"loss": "ptl/train_loss"}  # , "acc": "ptl/val_accuracy"}
+    callbacks = [RichProgressBar(), TuneReportCallback(metrics, on="batch_end")]
+
+    trainer = pl.Trainer(callbacks=callbacks, gpus=gpus, log_every_n_steps=11)
     trainer.fit(model, dataloader)
+
+
+def main() -> None:
+    config = {
+        "lr": 3e-4,  # tune.loguniform(1e-4, 1e-1),
+        "dropout": 0.3,  # tune.choice([0.1, 0.3, 0.5, 0.7, 0.9]),  # 0.3
+        "nhead": 1,  # 1
+        "nlayers": 6,  # tune.randint(1, 10),  # 6
+        "batch_size": 4,  # tune.choice([2, 4, 6, 8]),  # 4
+    }
+    # analysis = tune.run(
+    #     tune.with_parameters(train, gpus=0),
+    #     config=config,
+    #     metric="loss",
+    #     num_samples=10,
+    # )
+    # print(analysis.best_config)
+    # train(config)
 
 
 if __name__ == "__main__":

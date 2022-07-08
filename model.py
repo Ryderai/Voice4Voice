@@ -53,17 +53,17 @@ class TransformerModel(pl.LightningModule):
         config,
         ntoken: int,
         d_model: int = 512,
-        nhead: int = 8,
-        nlayers: int = 6,
-        dropout: float = 0.1,
     ):
         super().__init__()
         self.d_model = d_model
         self.ntoken = ntoken
         self.tgt_mask = self.get_tgt_mask(ntoken)
         self.model_type = "Transformer"
-        
-        self.lr = config['lr'] #3e-4
+
+        self.lr = config["lr"]
+        dropout = config["dropout"]
+        nhead = config["nhead"]
+        nlayers = config["nlayers"]
 
         self.prenet = nn.Sequential(
             nn.Dropout(dropout),
