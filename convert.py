@@ -27,8 +27,8 @@ DEVICE = (
 )
 
 FREQUENCY_COUNT = 256
-# START_TOKEN = np.fill(-2, (FREQUENCY_COUNT))
-# STOP_TOKEN = np.fill(5, (FREQUENCY_COUNT))
+START_TOKEN = np.fill(-2, (FREQUENCY_COUNT))
+STOP_TOKEN = np.fill(5, (FREQUENCY_COUNT))
 SEQUENCE_LENGTH = 173
 BATCH_SIZE = 4
 
@@ -48,6 +48,14 @@ class VoiceData(Dataset):
             for voice in output_audio_files[:-1]
         ]
         self.output_tensors = torch.stack(output, dim=0)
+        
+        inf = input_audio_files[-1]
+        inf_numpy = audio_to_spectrogram(f"SoundReader/Artin/{inf}")
+        inf_tensor = torch.Tensor(inf_numpy).unsqueeze(0).to(DEVICE)
+
+        inf_out = output_audio_files[-1]
+        inf_out_numpy = audio_to_spectrogram(f"SoundReader/Ryder/{inf_out}")
+        inf_out_tensor = torch.Tensor(inf_out_numpy).unsqueeze(0).to(DEVICE)
 
     def __getitem__(self, index):
         return self.input_tensors[index], self.output_tensors[index]
@@ -123,18 +131,6 @@ def get_grad_norm(model_params):
 
 
 def main() -> None:
-
-    # inf = input_audio_files[-1]
-    # inf_numpy = audio_to_spectrogram(f"SoundReader/Artin/{inf}")
-    # inf_tensor = torch.Tensor(inf_numpy).unsqueeze(0).to(DEVICE)
-
-    # inf_out = output_audio_files[-1]
-    # inf_out_numpy = audio_to_spectrogram(f"SoundReader/Ryder/{inf_out}")
-    # inf_out_tensor = torch.Tensor(inf_out_numpy).unsqueeze(0).to(DEVICE)
-
-    # spectrogram_to_image(inf_numpy, "inf_spec")
-    # spectrogram_to_image(inf_out_numpy, "inf_out_spec")
-
     data = VoiceData()
     dataloader = DataLoader(data, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
     model = TransformerModel(SEQUENCE_LENGTH - 1, FREQUENCY_COUNT, 1, dropout=0.3)

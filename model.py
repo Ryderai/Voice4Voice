@@ -50,6 +50,7 @@ class PositionalEncoding(pl.LightningModule):
 class TransformerModel(pl.LightningModule):
     def __init__(
         self,
+        config,
         ntoken: int,
         d_model: int = 512,
         nhead: int = 8,
@@ -61,6 +62,8 @@ class TransformerModel(pl.LightningModule):
         self.ntoken = ntoken
         self.tgt_mask = self.get_tgt_mask(ntoken)
         self.model_type = "Transformer"
+        
+        self.lr = config['lr'] #3e-4
 
         self.prenet = nn.Sequential(
             nn.Dropout(dropout),
@@ -100,7 +103,7 @@ class TransformerModel(pl.LightningModule):
         return self.decoder_postnet(out)
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=3e-4)
+        return torch.optim.Adam(self.parameters(), lr=self.lr)
 
     def loss_fn(self, input: Tensor, target: Tensor):
         return F.mse_loss(input, target)

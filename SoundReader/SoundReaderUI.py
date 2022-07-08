@@ -100,6 +100,7 @@ class MainWindow(ttk.Frame):
         self.pack(fill = tk.BOTH, expand=True)
 
         self.parent.bind("<Button-1>", self.clip_specs)
+        self.parent.bind("<Button-3>", lambda event: self.clip_specs(event, start = False))
         
         top_frame = ttk.Frame(self)
         top_frame.pack(side = tk.TOP, fill = tk.BOTH, padx = 10, pady = 10)
@@ -155,21 +156,20 @@ class MainWindow(ttk.Frame):
         # toolbar.update()
         # canvas.get_tk_widget().pack(side= tk.LEFT, padx = 10, pady = 10)
     
-    def clip_specs(self, event):
+    def clip_specs(self, event, start: bool = True):
         x, y = event.x,event.y
         print(x,y)
-        if x > 470 and x<770:
+        if x > 470 and x < 740:
             try:
                 data = []
                 file_name = f'{self.recording_audio_path}/{self.word_index}.wav'
                 with wave.open(file_name) as wf:
-                    # new_data = []
                     data = wf.readframes(wf.getnframes())
-                    data = data[int(wf.getnframes()*((x-470)/300))*2:]
-                    # for i in range(0,44100,44100//1024):
-                    #     if i > int(44100*(x-470/300)): 
-                    #         new_data.append(wf.readframes(1024))
-                
+                    byte_index = int(wf.getnframes()*((x-470)/300))*2
+                    data = data[byte_index:] if start else data[:byte_index]
+
+                file_name = f'{self.recording_audio_path}/{self.word_index}.wav'
+
                 open(file_name,'w').close()
 
                 with wave.open(file_name,'wb') as wf:
@@ -180,7 +180,6 @@ class MainWindow(ttk.Frame):
                 
                 self.play_recording()
                 self.update_recording_plot()
-                # self.writeFile(,data)
             except FileNotFoundError:
                 print(f'Can not find SM audio file') # no action is needed
             except Exception as e:
@@ -279,14 +278,15 @@ class MainWindow(ttk.Frame):
         
         recording_frames = (self.stream_in.read(1024) for _ in range(44100 // (1024 * 1)))
 
-        self.writeFile(f'{self.recording_audio_path}/{self.word_index}.wav',recording_frames)
+        self.write_recoding(recording_frames)
 
         self.stream_in.stop_stream()
         self.record_var.set("Record")
         self.recordButton.config(command = self.record)
 
    
-    def writeFile(self,file_name,frames_data):
+    def write_recoding(self,data_frames):
+        file_name = f'{self.recording_audio_path}/{self.word_index}.wav'
 
         open(file_name,'w').close()
 
@@ -294,7 +294,7 @@ class MainWindow(ttk.Frame):
             wf.setframerate(44100)
             wf.setnchannels(1)
             wf.setsampwidth(2) # 2 Bytes per sample (pyaudio.paInt16)
-            wf.writeframes(b''.join(frames_data))
+            wf.writeframes(b''.join(data_frames))
         
         self.play_recording()
         self.update_recording_plot()
