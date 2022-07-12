@@ -66,8 +66,8 @@ class MainWindow(ttk.Frame):
 
     words: List[str]
     word_index: int = 0
-    reference_audio_path: str = 'Ryder'
-    recording_audio_path: str = 'Artin'
+    reference_audio_path: str = 'Artin'
+    recording_audio_path: str = 'Ryder'
 
     def __init__(self, parent: tk.Tk, *args, **kwargs):
         """
@@ -159,13 +159,13 @@ class MainWindow(ttk.Frame):
     def clip_specs(self, event, start: bool = True):
         x, y = event.x,event.y
         print(x,y)
-        if x > 470 and x < 740:
+        if x > 474 and x < 771:
             try:
                 data = []
                 file_name = f'{self.recording_audio_path}/{self.word_index}.wav'
                 with wave.open(file_name) as wf:
                     data = wf.readframes(wf.getnframes())
-                    byte_index = int(wf.getnframes()*((x-470)/300))*2
+                    byte_index = int(wf.getnframes()*((x-474)/297))*2
                     data = data[byte_index:] if start else data[:byte_index]
 
                 file_name = f'{self.recording_audio_path}/{self.word_index}.wav'
