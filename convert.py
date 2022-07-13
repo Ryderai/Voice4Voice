@@ -7,6 +7,8 @@ import os
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import RichProgressBar, ModelCheckpoint  # type: ignore
+from pytorch_lightning.callbacks.progress.rich_progress import RichProgressBarTheme
+from pytorch_lightning.loggers import TensorBoardLogger
 import ray.tune as tune
 from ray.tune.integration.pytorch_lightning import TuneReportCallback
 from torch.utils.tensorboard import SummaryWriter  # type: ignore
@@ -31,43 +33,105 @@ DEVICE = (
 FREQUENCY_COUNT = 64
 SEQUENCE_LENGTH = 173
 
-class VoiceData(Dataset):  # REVIEW CODE FOR EFFICIENCY!!! (Should some of these be on gpu? Like length and stops?) ---> https://discuss.pytorch.org/t/best-way-to-convert-a-list-to-a-tensor/59949/3
 
+class VoiceData(
+    Dataset
+):  # REVIEW CODE FOR EFFICIENCY!!! (Should some of these be on gpu? Like length and stops?) ---> https://discuss.pytorch.org/t/best-way-to-convert-a-list-to-a-tensor/59949/3
     def __init__(self):
         input_audio_files = os.listdir("SoundReader/Artin")
-        self.input_tensors = [ # Maybe refactor to keep consistent with output? (in = ..., then on a later line do self.input_tensors = in)
+        _in = [  # Maybe refactor to keep consistent with output? (in = ..., then on a later line do self.input_tensors = in)
             torch.Tensor(audio_to_spectrogram(f"SoundReader/Artin/{voice}"))
             for voice in input_audio_files
         ]
-        # self.input_tensors = torch.stack(_input, dim=0)
+
+        self.input_tensors = torch.Tensor(
+            [
+                np.concatenate(
+                    (a, np.zeros((SEQUENCE_LENGTH - len(a), FREQUENCY_COUNT)))
+                )
+                for a in _in
+            ]
+        )
+        print([a.shape for a in self.input_tensors])
 
         output_audio_files = os.listdir("SoundReader/Ryder")
         out = [
-            torch.Tensor(audio_to_spectrogram(f"SoundReader/Ryder/{voice}")) 
+            torch.tensor(
+                audio_to_spectrogram(f"SoundReader/Ryder/{voice}")
+            )  # Should be max(length, Sequence_length-1) clip it at length on less than the sequence length for modfmeol
             for voice in output_audio_files
         ]
-        self.lengths = [len(o) for o in out] # Initialized list of 
-        self.stops = [np.zeroes(l)+np.ones((1)) for l in self.lengths]
-        self.output_tensors = torch.concat(out[:], np.zeroes((out[0],SEQUENCE_LENGTH-out.shape[1]))) #Padding frames
-        
-        # self.output_tensors = torch.stack(output, dim=0)
- 
-        # inf = input_audio_files[-1]
-        # inf_numpy = audio_to_spectrogram(f"SoundReader/Artin/{inf}")
-        # inf_tensor = torch.Tensor(inf_numpy).unsqueeze(0).to(DEVICE)
 
-        # inf_out = output_audio_files[-1]
-        # inf_out_numpy = audio_to_spectrogram(f"SoundReader/Ryder/{inf_out}")
-        # inf_out_tensor = torch.Tensor(inf_out_numpy).unsqueeze(0).to(DEVICE)
+        # Initialized list of
+        # print(self.lengths)
+        self.stops = torch.stack(
+            [
+                torch.cat(
+                    (
+                        torch.zeros(len(o)),
+                        torch.Tensor([1]),
+                        torch.zeros(SEQUENCE_LENGTH - (len(o) + 1)),
+                    )
+                )
+                for o in out
+            ]
+        )
+        self.spec_clipping_masks = torch.stack(
+            [
+                torch.cat(
+                    (
+                        torch.zeros(len(o), FREQUENCY_COUNT, dtype=torch.bool),
+                        torch.ones(
+                            SEQUENCE_LENGTH - len(o),
+                            FREQUENCY_COUNT,
+                            dtype=torch.bool,
+                        ),
+                    )
+                )
+                for o in out
+            ]
+        )
+
+        self.stops_clipping_masks = torch.stack(
+            [
+                torch.cat(
+                    (
+                        torch.zeros(len(o) + 1, dtype=torch.bool),
+                        torch.ones(
+                            SEQUENCE_LENGTH - (len(o) + 1),
+                            dtype=torch.bool,
+                        ),
+                    )
+                )
+                for o in out
+            ]
+        )
+        self.output_tensors = torch.stack(
+            [
+                torch.cat((o, torch.zeros((SEQUENCE_LENGTH - len(o), FREQUENCY_COUNT))))
+                for o in out
+            ]
+        )
+        print(self.output_tensors.dtype, self.input_tensors.dtype)
+        # print([o.shape for o in self.output_tensors])
+        # Padding frames
 
     def __getitem__(self, index):
-        return self.input_tensors[index], self.output_tensors[index], self.stops[index], self.lengths[index]
+        return (
+            self.input_tensors[index],
+            self.output_tensors[index],
+            self.stops[index],
+            self.spec_clipping_masks[index],
+            self.stops_clipping_masks[index],
+        )
 
     def __len__(self):
         return len(self.input_tensors)
 
 
-def audio_to_spectrogram(name: str) -> np.ndarray: #Get spectrogram and clips to model input size if needed
+def audio_to_spectrogram(
+    name: str,
+) -> np.ndarray:  # Get spectrogram and clips to model input size if needed
     y, _ = librosa.load(name)
     stft = librosa.core.stft(y=y, n_fft=512, hop_length=128)
     stft = stft.real
@@ -78,7 +142,9 @@ def audio_to_spectrogram(name: str) -> np.ndarray: #Get spectrogram and clips to
     # print(stft.min(), stft.max(), stft.mean())
     # stft = np.tanh(stft)
     # print(stft.shape)
-    stft = stft[:SEQUENCE_LENGTH, :FREQUENCY_COUNT] # Clips to a sequence length of 1 less than the model to allow for concatenation of start token
+    stft = stft[
+        :SEQUENCE_LENGTH, :FREQUENCY_COUNT
+    ]  # Clips to a sequence length of 1 less than the model to allow for concatenation of start token
     return stft
 
 
@@ -109,7 +175,7 @@ def predict(model: TransformerModel, input_tensor, sequence_length, model_dim):
         for i in range(1, sequence_length):
             padding = np.zeros((sequence_length - i, model_dim))
             output = np.concatenate((sequence, padding))
-            output_tensor = torch.Tensor(output).to(DEVICE).unsqueeze(0)
+            output_tensor = torch.tensor(output).to(DEVICE).unsqueeze(0)
             result = (
                 model(input_tensor, output_tensor, tgt_mask=None)
                 .detach()
@@ -136,14 +202,16 @@ def train(config, gpus=1):
     dataloader = DataLoader(
         data, batch_size=config["batch_size"], shuffle=True, num_workers=0
     )
-    model = TransformerModel(config, SEQUENCE_LENGTH - 1, FREQUENCY_COUNT)
+    model = TransformerModel(config, SEQUENCE_LENGTH, FREQUENCY_COUNT)
 
-    metrics = {"loss": "ptl/train_loss"}  # , "acc": "ptl/val_accuracy"}
-    callbacks = [RichProgressBar(), TuneReportCallback(metrics, on="batch_end")]
-
-    trainer = pl.Trainer(callbacks=callbacks, gpus=gpus, log_every_n_steps=11)
+    # metrics = {"loss": "ptl/train_loss"}  # , "acc": "ptl/val_accuracy"}
+    # callbacks = [RichProgressBar(), TuneReportCallback(metrics, on="batch_end")]
+    logger = TensorBoardLogger("logs", log_graph=True)
+    trainer = pl.Trainer(
+        callbacks=RichProgressBar(), gpus=1, logger=logger, log_every_n_steps=11
+    )
     trainer.fit(model, dataloader)
-    
+
     return model
 
 
@@ -163,12 +231,12 @@ def main() -> None:
     # )
     # print(analysis.best_config)
     model = train(config)
-    
+
     input_audio_files = os.listdir("SoundReader/Artin")
     inf = input_audio_files[-1]
     inf_numpy = audio_to_spectrogram(f"SoundReader/Artin/{inf}")
-    inf_tensor = torch.Tensor(inf_numpy).unsqueeze(0).to(DEVICE)
-    
+    inf_tensor = torch.tensor(inf_numpy).unsqueeze(0).to(DEVICE)
+
     pred = predict(model, inf_tensor, SEQUENCE_LENGTH, FREQUENCY_COUNT)
     spectrogram_to_image(pred, "inference_image")
     spectrogram_to_audio(pred, "inference_audio", 128, 44100)
