@@ -202,8 +202,9 @@ class TransformerModel(pl.LightningModule):
         )  # Cuts down output from model to corresponding audio clip length (makes sure loss is not caculated across frames where no audio exists)
         loss = F.mse_loss(
             predicted_specs, output_tensors
-        ) + F.binary_cross_entropy_with_logits(predicted_stops, target_stops)
-        logs = {"train_loss": loss}
+        )  # + F.binary_cross_entropy_with_logits(predicted_stops, target_stops)
+        logs = {"train_loss": loss.item()}
+        self.logger.log_metrics(logs, self.global_step)
         return {
             "loss": loss,
             "log": logs,

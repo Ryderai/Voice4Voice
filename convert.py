@@ -206,9 +206,12 @@ def train(config, gpus=1):
 
     # metrics = {"loss": "ptl/train_loss"}  # , "acc": "ptl/val_accuracy"}
     # callbacks = [RichProgressBar(), TuneReportCallback(metrics, on="batch_end")]
-    logger = TensorBoardLogger("logs", log_graph=True)
+    logger = TensorBoardLogger("logs")
     trainer = pl.Trainer(
-        callbacks=RichProgressBar(), gpus=1, logger=logger, log_every_n_steps=11
+        callbacks=RichProgressBar(),
+        gpus=1,
+        logger=logger,
+        log_every_n_steps=11,
     )
     trainer.fit(model, dataloader)
 
