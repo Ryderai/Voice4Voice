@@ -6,6 +6,7 @@ import numpy as np
 import os
 import torch
 from torch import Tensor
+from torchaudio import datasets
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import RichProgressBar, ModelCheckpoint  # type: ignore
 from pytorch_lightning.callbacks.progress.rich_progress import RichProgressBarTheme
@@ -31,36 +32,40 @@ DEVICE = (
     else "cpu"
 )
 
-FREQUENCY_COUNT = 64
-SEQUENCE_LENGTH = 173  # 173
+FREQUENCY_COUNT = 200
+SEQUENCE_LENGTH = 1078  # 173
 
 
 class VoiceData(
     Dataset
 ):  # REVIEW CODE FOR EFFICIENCY!!! (Should some of these be on gpu? Like length and stops?) ---> https://discuss.pytorch.org/t/best-way-to-convert-a-list-to-a-tensor/59949/3
     def __init__(self):
-        input_audio_files = os.listdir("SoundReader/Artin")
+        # input_audio_files = os.listdir("SoundReader/Artin")
+        input_audio_files = os.listdir("cmu_arctic/female1")
         _in = [  # Maybe refactor to keep consistent with output? (in = ..., then on a later line do self.input_tensors = in)
-            torch.Tensor(audio_to_spectrogram(f"SoundReader/Artin/{voice}"))
-            for voice in input_audio_files
+            torch.Tensor(audio_to_spectrogram(f"cmu_arctic/female1/{voice}"))
+            for voice in input_audio_files[:-1]
         ]
 
         self.input_tensors = torch.Tensor(
-            [
-                np.concatenate(
-                    (a, np.zeros((SEQUENCE_LENGTH - len(a), FREQUENCY_COUNT)))
-                )
-                for a in _in
-            ]
+            np.array(
+                [
+                    np.concatenate(
+                        (a, np.zeros((SEQUENCE_LENGTH - len(a), FREQUENCY_COUNT)))
+                    )
+                    for a in _in
+                ]
+            )
         )
-        print([a.shape for a in self.input_tensors])
+        # print([a.shape for a in self.input_tensors])
 
-        output_audio_files = os.listdir("SoundReader/Ryder")
+        # output_audio_files = os.listdir("SoundReader/Ryder")
+        output_audio_files = os.listdir("cmu_arctic/female2")
         out = [
             torch.tensor(
-                audio_to_spectrogram(f"SoundReader/Ryder/{voice}", True)
+                audio_to_spectrogram(f"cmu_arctic/female2/{voice}", True)
             )  # Should be max(length, Sequence_length-1) clip it at length on less than the sequence length for modfmeol
-            for voice in output_audio_files
+            for voice in output_audio_files[:-1]
         ]
 
         # Initialized list of
@@ -113,7 +118,7 @@ class VoiceData(
                 for o in out
             ]
         )
-        print(self.output_tensors.dtype, self.input_tensors.dtype)
+        # print(self.output_tensors.dtype, self.input_tensors.dtype)
         # print([o.shape for o in self.output_tensors])
         # Padding frames
 
@@ -212,7 +217,7 @@ def train(config, gpus=1):
         gpus=1,
         logger=logger,
         log_every_n_steps=11,
-        max_epochs=500,
+        max_epochs=10,
     )
     trainer.fit(model, dataloader)
 
@@ -225,7 +230,7 @@ def main() -> None:
         "dropout": 0.0,  # tune.choice([0.1, 0.3, 0.5, 0.7, 0.9]),  # 0.3
         "nhead": 4,  # 1
         "nlayers": 6,  # tune.randint(1, 10),  # 6
-        "batch_size": 4,  # tune.choice([2, 4, 6, 8]),  # 4
+        "batch_size": 8,  # tune.choice([2, 4, 6, 8]),  # 4
     }
     # analysis = tune.run(
     #     tune.with_parameters(train, gpus=0),
@@ -236,9 +241,9 @@ def main() -> None:
     # print(analysis.best_config)
     model = train(config)
 
-    input_audio_files = os.listdir("SoundReader/Artin")
+    input_audio_files = os.listdir("cmu_arctic/female1")
     inf = input_audio_files[-1]
-    inf_numpy = audio_to_spectrogram(f"SoundReader/Artin/{inf}")
+    inf_numpy = audio_to_spectrogram(f"cmu_arctic/female1/{inf}")
     inf_tensor = torch.tensor(inf_numpy)
     inf_tensor = (
         torch.cat(
