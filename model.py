@@ -8,6 +8,7 @@ import torch.nn.functional as F  # type: ignore
 from torch.nn import TransformerEncoder, TransformerEncoderLayer, TransformerDecoder, TransformerDecoderLayer  # type: ignore
 import pytorch_lightning as pl
 from torch.utils.data import Dataset
+from PIL import Image
 
 
 class PositionalEncoding(pl.LightningModule):
@@ -202,11 +203,24 @@ class TransformerModel(pl.LightningModule):
         )  # Cuts down output from model to corresponding audio clip length (makes sure loss is not caculated across frames where no audio exists)
         loss = F.mse_loss(
             predicted_specs, output_tensors
-        )  # + F.binary_cross_entropy_with_logits(predicted_stops, target_stops)
-        logs = {"train_loss": loss.item()}
-        self.logger.log_metrics(logs, self.global_step)
-        return {
-            "loss": loss,
-            "log": logs,
-        }  # https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
+        ) + F.binary_cross_entropy_with_logits(predicted_stops, target_stops)
+        logs = {"loss": loss}
+        if self.global_step % 5 == 0:
+            self.logger.log_metrics(logs, self.global_step)  # type: ignore
+        if self.global_step % 50 == 0:
+            spectrogram_to_image(predicted_specs[0].cpu().detach().numpy(), "predicted")
+            spectrogram_to_image(output_tensors[0].cpu().detach().numpy(), "target")
+
+        return loss  # https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
         # Weight postivie stop token
+
+
+def spectrogram_to_image(transform: np.ndarray, name: str) -> None:
+    img = transform.copy()
+    # img -= img.min()
+    # img *= 255 / (img.mean() * 3)
+    img *= 100
+    img = np.where(img > 254, 0, img)
+    img = np.swapaxes(img, 0, 1)
+    img = np.flip(img, 0)
+    Image.fromarray(img).convert("RGB").save(f"{name}.png")

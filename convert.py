@@ -5,6 +5,7 @@ from PIL import Image
 import numpy as np
 import os
 import torch
+from torch import Tensor
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import RichProgressBar, ModelCheckpoint  # type: ignore
 from pytorch_lightning.callbacks.progress.rich_progress import RichProgressBarTheme
@@ -31,7 +32,7 @@ DEVICE = (
 )
 
 FREQUENCY_COUNT = 64
-SEQUENCE_LENGTH = 173
+SEQUENCE_LENGTH = 173  # 173
 
 
 class VoiceData(
@@ -57,7 +58,7 @@ class VoiceData(
         output_audio_files = os.listdir("SoundReader/Ryder")
         out = [
             torch.tensor(
-                audio_to_spectrogram(f"SoundReader/Ryder/{voice}")
+                audio_to_spectrogram(f"SoundReader/Ryder/{voice}", True)
             )  # Should be max(length, Sequence_length-1) clip it at length on less than the sequence length for modfmeol
             for voice in output_audio_files
         ]
@@ -131,6 +132,7 @@ class VoiceData(
 
 def audio_to_spectrogram(
     name: str,
+    out: bool = False,
 ) -> np.ndarray:  # Get spectrogram and clips to model input size if needed
     y, _ = librosa.load(name)
     stft = librosa.core.stft(y=y, n_fft=512, hop_length=128)
@@ -143,7 +145,7 @@ def audio_to_spectrogram(
     # stft = np.tanh(stft)
     # print(stft.shape)
     stft = stft[
-        :SEQUENCE_LENGTH, :FREQUENCY_COUNT
+        : SEQUENCE_LENGTH - int(out), :FREQUENCY_COUNT
     ]  # Clips to a sequence length of 1 less than the model to allow for concatenation of start token
     return stft
 
@@ -168,22 +170,20 @@ def spectrogram_to_audio(arr: np.ndarray, name: str, hop_length: int, sr: int) -
     waveWrite(name, sr, audio)
 
 
-def predict(model: TransformerModel, input_tensor, sequence_length, model_dim):
+def predict(model: TransformerModel, input_tensor: Tensor, sequence_length, model_dim):
     model.eval()
-    sequence = np.zeros((1, model_dim))
+    sequence = np.zeros((sequence_length - 1, model_dim))
+
     with torch.no_grad():
-        for i in range(1, sequence_length):
-            padding = np.zeros((sequence_length - i, model_dim))
-            output = np.concatenate((sequence, padding))
-            output_tensor = torch.tensor(output).to(DEVICE).unsqueeze(0)
-            result = (
-                model(input_tensor, output_tensor, tgt_mask=None)
-                .detach()
-                .cpu()
-                .squeeze()
-                .numpy()
+        for i in range(sequence_length - 1):
+            output_tensor = torch.tensor(sequence).unsqueeze(0).to(model.device)
+            spec, stop = model(
+                input_tensor.float(), output_tensor.float(), tgt_mask=None
             )
-            sequence = np.concatenate((sequence, np.expand_dims(result[i - 1], 0)))
+            spec = spec.detach().cpu().squeeze().numpy()
+            stop = stop.detach().cpu().squeeze().numpy()
+            print(stop[i])
+            sequence[i] = np.expand_dims(spec[i], 0)
     return sequence
 
 
@@ -212,6 +212,7 @@ def train(config, gpus=1):
         gpus=1,
         logger=logger,
         log_every_n_steps=11,
+        max_epochs=500,
     )
     trainer.fit(model, dataloader)
 
@@ -221,8 +222,8 @@ def train(config, gpus=1):
 def main() -> None:
     config = {
         "lr": 3e-4,  # tune.loguniform(1e-4, 1e-1),
-        "dropout": 0.3,  # tune.choice([0.1, 0.3, 0.5, 0.7, 0.9]),  # 0.3
-        "nhead": 1,  # 1
+        "dropout": 0.0,  # tune.choice([0.1, 0.3, 0.5, 0.7, 0.9]),  # 0.3
+        "nhead": 4,  # 1
         "nlayers": 6,  # tune.randint(1, 10),  # 6
         "batch_size": 4,  # tune.choice([2, 4, 6, 8]),  # 4
     }
@@ -238,11 +239,20 @@ def main() -> None:
     input_audio_files = os.listdir("SoundReader/Artin")
     inf = input_audio_files[-1]
     inf_numpy = audio_to_spectrogram(f"SoundReader/Artin/{inf}")
-    inf_tensor = torch.tensor(inf_numpy).unsqueeze(0).to(DEVICE)
-
+    inf_tensor = torch.tensor(inf_numpy)
+    inf_tensor = (
+        torch.cat(
+            (
+                inf_tensor,
+                torch.zeros((SEQUENCE_LENGTH - len(inf_tensor), FREQUENCY_COUNT)),
+            )
+        )
+        .unsqueeze(0)
+        .to(model.device)
+    )
     pred = predict(model, inf_tensor, SEQUENCE_LENGTH, FREQUENCY_COUNT)
     spectrogram_to_image(pred, "inference_image")
-    spectrogram_to_audio(pred, "inference_audio", 128, 44100)
+    spectrogram_to_audio(pred, "inference_audio.wav", 128, 44100)
 
 
 if __name__ == "__main__":
