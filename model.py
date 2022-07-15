@@ -1,14 +1,11 @@
 import math
-from typing import Optional, Tuple
+from typing import Tuple
 
 import torch
-import numpy as np
-from torch import device, nn, Tensor, tensor_split  # type: ignore
-import torch.nn.functional as F  # type: ignore
-from torch.nn import TransformerEncoder, TransformerEncoderLayer, TransformerDecoder, TransformerDecoderLayer  # type: ignore
+from torch import nn, Tensor
+import torch.nn.functional as F
 import pytorch_lightning as pl
-from torch.utils.data import Dataset
-from PIL import Image
+from utils import audio_to_spectrogram, spectrogram_to_image, spectrogram_to_audio
 
 
 class PositionalEncoding(pl.LightningModule):
@@ -117,8 +114,7 @@ class TransformerModel(pl.LightningModule):
         )
 
         self.stop_linear = nn.Sequential(
-            nn.Dropout(dropout),
-            nn.Linear(d_model, 1),
+            nn.Dropout(dropout), nn.Linear(d_model, 1), nn.Sigmoid()
         )
 
         # self.fixed_pos_embedding = PositionalEncoding(ntoken, d_model)
@@ -201,26 +197,19 @@ class TransformerModel(pl.LightningModule):
         ).to(
             self.device
         )  # Cuts down output from model to corresponding audio clip length (makes sure loss is not caculated across frames where no audio exists)
-        loss = F.mse_loss(
-            predicted_specs, output_tensors
-        ) + F.binary_cross_entropy_with_logits(predicted_stops, target_stops)
+        loss = F.mse_loss(predicted_specs, output_tensors) + F.binary_cross_entropy(
+            predicted_stops, target_stops
+        )
         logs = {"loss": loss}
         if self.global_step % 5 == 0:
             self.logger.log_metrics(logs, self.global_step)  # type: ignore
         if self.global_step % 50 == 0:
-            spectrogram_to_image(predicted_specs[0].cpu().detach().numpy(), "predicted")
-            spectrogram_to_image(output_tensors[0].cpu().detach().numpy(), "target")
+            a = predicted_specs[0].cpu().detach().numpy()
+            b = output_tensors[0].cpu().detach().numpy()
+            spectrogram_to_image(a, "predicted")
+            spectrogram_to_image(b, "target")
+            spectrogram_to_audio(a, "predicted_audio.wav", 128, 44100)
+            spectrogram_to_audio(b, "target_audio.wav", 128, 44100)
 
         return loss  # https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
         # Weight postivie stop token
-
-
-def spectrogram_to_image(transform: np.ndarray, name: str) -> None:
-    img = transform.copy()
-    # img -= img.min()
-    # img *= 255 / (img.mean() * 3)
-    img *= 100
-    img = np.where(img > 254, 0, img)
-    img = np.swapaxes(img, 0, 1)
-    img = np.flip(img, 0)
-    Image.fromarray(img).convert("RGB").save(f"{name}.png")
