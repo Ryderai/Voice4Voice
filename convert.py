@@ -3,10 +3,12 @@ import os
 import torch
 from pathlib import Path
 from torch import Tensor
+from torch.utils.data import random_split
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import RichProgressBar, ModelCheckpoint  # type: ignore
 from pytorch_lightning.loggers import TensorBoardLogger
 import ray.tune as tune
+import ray
 from ray.tune.integration.pytorch_lightning import TuneReportCallback
 from torch.utils.data import Dataset, DataLoader
 from model import TransformerModel
@@ -32,8 +34,8 @@ class VoiceData(
     Dataset
 ):  # REVIEW CODE FOR EFFICIENCY!!! (Should some of these be on gpu? Like length and stops?) ---> https://discuss.pytorch.org/t/best-way-to-convert-a-list-to-a-tensor/59949/3
     def __init__(self):
-        female1path = "C:/Users/Artin/Documents/GitHub/Voice4Voice/cmu_arctic/female1"
-        female2path = "C:/Users/Artin/Documents/GitHub/Voice4Voice/cmu_arctic/female2"
+        female1path = "E:/Code/Python/Voice4Voice/cmu_arctic/female1"
+        female2path = "E:/Code/Python/Voice4Voice/cmu_arctic/female2"
         # input_audio_files = os.listdir("SoundReader/Artin")
         input_audio_files = os.listdir(female1path)
         _in = [  # Maybe refactor to keep consistent with output? (in = ..., then on a later line do self.input_tensors = in)
@@ -152,57 +154,75 @@ def predict(model: TransformerModel, input_tensor: Tensor, sequence_length, mode
     return sequence
 
 
-def train(config, gpus=1):
-    data_path = f"C:/Users/Artin/Documents/GitHub/Voice4Voice/data_{FREQUENCY_COUNT}.pt"
-    # if not os.path.exists(data_path):
-    print("processing data...")
+def train(config, gpus=1):  # train_data, val_data, gpus):
+
     data = VoiceData()
-    # torch.save(data, data_path)
-    # else:
-    #     print("LOADING PREVIOUSLY PROCESSED DATA")
-    #     data = torch.load(data_path)
-    dataloader = DataLoader(
-        data, batch_size=config["batch_size"], shuffle=True, num_workers=0
+    train_size = int(len(data) * 0.8)
+    val_size = len(data) - train_size
+
+    train_data, val_data = random_split(data, [train_size, val_size])
+
+    train_dataloader = DataLoader(
+        train_data, batch_size=config["batch_size"], shuffle=True, num_workers=0
+    )
+    val_dataloader = DataLoader(
+        val_data, batch_size=config["batch_size"], shuffle=True, num_workers=0
     )
     model = TransformerModel(config, SEQUENCE_LENGTH, FREQUENCY_COUNT)
 
-    metrics = {"loss": "loss"}  # , "acc": "ptl/val_accuracy"}
+    metrics = {"val_loss": "val_loss"}
     callbacks = [RichProgressBar(), TuneReportCallback(metrics, on="batch_end")]
     logger = TensorBoardLogger("logs")
     trainer = pl.Trainer(
         callbacks=callbacks,
-        gpus=1,
+        gpus=gpus,
         logger=logger,
         log_every_n_steps=11,
         max_epochs=15,
     )
-    trainer.fit(model, dataloader)
+    trainer.fit(model, train_dataloader, val_dataloader)
 
     return model
 
 
 def main() -> None:
     # config = {
-    #     "lr": 3e-4,  
+    #     "lr": 3e-4,
     #     "dropout": 0.0,
-    #     "nhead": 4,  
-    #     "nlayers": 6,  
+    #     "nhead": 4,
+    #     "nlayers": 6,
     #     "batch_size": 8
     # }
     config = {
-        "lr" : tune.loguniform(1e-4, 1e-1),
-        "dropout" : tune.choice([0.1, 0.3, 0.5, 0.7, 0.9]),  # 0.3
-        "nhead" : tune.choice([1, 2, 4, 8]),
-        "nlayers" : tune.randint(1, 10),  # 6
-        "batch_size" : tune.choice([2, 4, 6, 8]),  # 4
+        "lr": tune.loguniform(1e-4, 1e-1),
+        "dropout": tune.choice([0.1, 0.3, 0.5, 0.7, 0.9]),  # 0.3
+        "nhead": tune.choice([1, 2, 4, 8]),
+        "nlayers": tune.randint(1, 10),  # 6
+        "batch_size": tune.choice([2, 4, 6, 8]),  # 4
     }
 
+    # data_path = f"data_{FREQUENCY_COUNT}.pt"
+    # if not os.path.exists(data_path):
+    #     print("processing data...")
+    #     data = VoiceData()
+    #     torch.save(data, data_path)
+    # else:
+    #     print("LOADING PREVIOUSLY PROCESSED DATA")
+    #     data = torch.load(data_path)
+
+    # train_size = int(len(data) * 0.8)
+    # val_size = len(data) - train_size
+
+    # train_data, val_data = random_split(data, [train_size, val_size])
+    ray.init(local_mode=True)
     analysis = tune.run(
-        tune.with_parameters(train, gpus=1),
+        tune.with_parameters(
+            train, gpus=1
+        ),  # train_data=train_data, val_data=val_data, gpus=1),
         config=config,
         metric="loss",
         num_samples=10,
-        resources_per_trial={"cpu": 1},
+        resources_per_trial={"gpu": 1},
     )
     print(analysis.best_config)
     # model = train(config)

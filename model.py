@@ -176,13 +176,6 @@ class TransformerModel(pl.LightningModule):
             self.get_tgt_mask(input_tensors.shape[1]),
         )
         predicted_stops = predicted_stops.squeeze(2)
-        # print(
-        #     predicted_specs.shape,
-        #     predicted_stops.shape,
-        #     specs_clipping_masks.shape,
-        #     stops_clipping_masks.shape,
-        #     target_stops.shape,
-        # )
 
         predicted_specs, predicted_stops = torch.stack(
             [
@@ -200,9 +193,10 @@ class TransformerModel(pl.LightningModule):
         loss = F.mse_loss(predicted_specs, output_tensors) + F.binary_cross_entropy(
             predicted_stops, target_stops
         )
-        logs = {"loss": loss}
+        # logs = {"train_loss": loss}
         if self.global_step % 5 == 0:
-            self.logger.log_metrics(logs, self.global_step)  # type: ignore
+            self.log("train_loss", loss)
+            # self.logger.log_metrics(logs, self.global_step)  # type: ignore
         if self.global_step % 50 == 0:
             a = predicted_specs[0].cpu().detach().numpy()
             b = output_tensors[0].cpu().detach().numpy()
@@ -213,3 +207,41 @@ class TransformerModel(pl.LightningModule):
 
         return loss  # https://stackoverflow.com/questions/53994625/how-can-i-process-multi-loss-in-pytorch
         # Weight postivie stop token
+
+    def validation_step(self, batch, batch_idx):
+        (
+            input_tensors,
+            output_tensors,
+            target_stops,
+            specs_clipping_masks,
+            stops_clipping_masks,
+        ) = batch
+
+        predicted_specs, predicted_stops = self(
+            input_tensors,
+            output_tensors[:, :-1],
+            self.get_tgt_mask(input_tensors.shape[1]),
+        )
+
+        predicted_stops = predicted_stops.squeeze(2)
+
+        predicted_specs, predicted_stops = torch.stack(
+            [
+                spec.masked_fill(specs_clipping_masks[i], 0)
+                for i, spec in enumerate(predicted_specs)
+            ]
+        ).to(self.device), torch.stack(
+            [
+                stop.masked_fill(stops_clipping_masks[i], 0)
+                for i, stop in enumerate(predicted_stops)
+            ]
+        ).to(
+            self.device
+        )  # Cuts down output from model to corresponding audio clip length (makes sure loss is not caculated across frames where no audio exists)
+
+        loss = F.mse_loss(predicted_specs, output_tensors) + F.binary_cross_entropy(
+            predicted_stops, target_stops
+        )
+        self.log("val_loss", loss)
+
+        return loss
