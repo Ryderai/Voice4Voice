@@ -7,9 +7,15 @@ from torch.utils.data import random_split
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import RichProgressBar, ModelCheckpoint  # type: ignore
 from pytorch_lightning.loggers import TensorBoardLogger
-import ray.tune as tune
-import ray
-from ray.tune.integration.pytorch_lightning import TuneReportCallback
+
+
+# from torch.profiler.profiler import profile
+# from torch.profiler.profiler import profile, ProfilerActivity
+# from torch.autograd.profiler import record_function
+
+# import ray.tune as tune
+# import ray
+# from ray.tune.integration.pytorch_lightning import TuneReportCallback
 from torch.utils.data import Dataset, DataLoader
 from model import TransformerModel
 from rich.progress import track
@@ -28,6 +34,7 @@ DEVICE = (
 
 FREQUENCY_COUNT = 64
 SEQUENCE_LENGTH = 1078  # 173
+SAMPLES = 50
 
 
 class VoiceData(
@@ -149,18 +156,12 @@ def predict(model: TransformerModel, input_tensor: Tensor, sequence_length, mode
             )
             spec = spec.detach().cpu().squeeze().numpy()
             stop = stop.detach().cpu().squeeze().numpy()
-            print(f"Stop: {stop[i]}")
+            # print(f"Stop: {stop[i]}")
             sequence[i] = np.expand_dims(spec[i], 0)
     return sequence
 
 
-def train(config, gpus=1):  # train_data, val_data, gpus):
-
-    data = VoiceData()
-    train_size = int(len(data) * 0.8)
-    val_size = len(data) - train_size
-
-    train_data, val_data = random_split(data, [train_size, val_size])
+def train(config, train_data, val_data, gpus=1):  # train_data, val_data, gpus):
 
     train_dataloader = DataLoader(
         train_data, batch_size=config["batch_size"], shuffle=True, num_workers=0
@@ -168,17 +169,30 @@ def train(config, gpus=1):  # train_data, val_data, gpus):
     val_dataloader = DataLoader(
         val_data, batch_size=config["batch_size"], shuffle=True, num_workers=0
     )
+    # with torch.profiler.profiler.profile(
+    #     schedule=torch.profiler.profiler.schedule(wait=1, warmup=1, active=5),
+    #     on_trace_ready=torch.profiler.profiler.tensorboard_trace_handler(
+    #         "./logs/transformerYES"
+    #     ),
+    #     record_shapes=True,
+    # ) as prof:
     model = TransformerModel(config, SEQUENCE_LENGTH, FREQUENCY_COUNT)
 
-    metrics = {"val_loss": "val_loss"}
-    callbacks = [RichProgressBar(), TuneReportCallback(metrics, on="batch_end")]
-    logger = TensorBoardLogger("logs")
+    name = "".join(f"{k}-{v}_" for k, v in config.items())
+
+    if os.path.exists(f"logs/{name}"):
+        print("ALREADY EXISTS!!!")
+        return
+    else:
+        logger = TensorBoardLogger("logs", name)
+
     trainer = pl.Trainer(
-        callbacks=callbacks,
+        callbacks=RichProgressBar(),
         gpus=gpus,
         logger=logger,
         log_every_n_steps=11,
-        max_epochs=15,
+        max_epochs=1,
+        profiler="pytorch",
     )
     trainer.fit(model, train_dataloader, val_dataloader)
 
@@ -186,78 +200,40 @@ def train(config, gpus=1):  # train_data, val_data, gpus):
 
 
 def main() -> None:
-    # config = {
-    #     "lr": 3e-4,
-    #     "dropout": 0.0,
-    #     "nhead": 4,
-    #     "nlayers": 6,
-    #     "batch_size": 8
-    # }
-    config = {
-        "lr": tune.loguniform(1e-4, 1e-1),
-        "dropout": tune.choice([0.1, 0.3, 0.5, 0.7, 0.9]),  # 0.3
-        "nhead": tune.choice([1, 2, 4, 8]),
-        "nlayers": tune.randint(1, 10),  # 6
-        "batch_size": tune.choice([2, 4, 6, 8]),  # 4
-    }
 
-    # data_path = f"data_{FREQUENCY_COUNT}.pt"
-    # if not os.path.exists(data_path):
-    #     print("processing data...")
-    #     data = VoiceData()
-    #     torch.save(data, data_path)
-    # else:
-    #     print("LOADING PREVIOUSLY PROCESSED DATA")
-    #     data = torch.load(data_path)
+    data_path = f"data_{FREQUENCY_COUNT}.pt"
+    if not os.path.exists(data_path):
+        print("processing data...")
+        data = VoiceData()
+        torch.save(data, data_path)
+    else:
+        print("LOADING PREVIOUSLY PROCESSED DATA")
+        data = torch.load(data_path)
 
-    # train_size = int(len(data) * 0.8)
-    # val_size = len(data) - train_size
+    train_size = int(len(data) * 0.8)
+    val_size = len(data) - train_size
 
-    # train_data, val_data = random_split(data, [train_size, val_size])
-    ray.init(local_mode=True)
-    analysis = tune.run(
-        tune.with_parameters(
-            train, gpus=1
-        ),  # train_data=train_data, val_data=val_data, gpus=1),
-        config=config,
-        metric="loss",
-        num_samples=10,
-        resources_per_trial={"gpu": 1},
-    )
-    print(analysis.best_config)
-    # model = train(config)
+    for _ in range(25):
+        train_data, val_data = random_split(data, [train_size, val_size])
+        print(len(train_data), len(val_data))
+        config = {
+            "lr": float(np.random.uniform(1e-6, 1e-4)),
+            "dropout": float(np.random.choice([0.0, 0.1, 0.3, 0.5, 0.7])),
+            "nhead": int(np.random.choice([1, 2, 4, 8])),
+            "nlayers": int(np.random.randint(1, 6)),
+            "batch_size": int(np.random.choice([2, 3, 4])),
+            "leaky": float(np.random.choice([0.0, 0.01])),
+        }
+        # config = {
+        #     "lr": 1e-4,
+        #     "dropout": 0.3,
+        #     "nhead": 4,
+        #     "nlayers": 5,
+        #     "batch_size": 4,
+        #     "leaky": 0.01,
+        # }
 
-    # input_audio_files = os.listdir("cmu_arctic/female1")
-    # inf = input_audio_files[-2]
-    # inf_numpy = audio_to_spectrogram(
-    #     f"cmu_arctic/female1/{inf}", SEQUENCE_LENGTH, FREQUENCY_COUNT
-    # )
-    # spectrogram_to_image(inf_numpy, "inference_input_image")
-    # spectrogram_to_audio(inf_numpy, "inference_input_audio.wav", 128, 22050)
-
-    # inf_tensor = torch.tensor(inf_numpy)
-    # inf_tensor = (
-    #     torch.cat(
-    #         (
-    #             inf_tensor,
-    #             torch.zeros((SEQUENCE_LENGTH - len(inf_tensor), FREQUENCY_COUNT)),
-    #         )
-    #     )
-    #     .unsqueeze(0)
-    #     .to(model.device)
-    # )
-
-    # pred = predict(model, inf_tensor, SEQUENCE_LENGTH, FREQUENCY_COUNT)
-    # spectrogram_to_image(pred, "inference_predict_image")
-    # spectrogram_to_audio(pred, "inference_predict_audio.wav", 128, 22050)
-
-    # output_audio_files = os.listdir("cmu_arctic/female2")
-    # inf = output_audio_files[-2]
-    # inf_numpy = audio_to_spectrogram(
-    #     f"cmu_arctic/female2/{inf}", SEQUENCE_LENGTH, FREQUENCY_COUNT
-    # )
-    # spectrogram_to_image(inf_numpy, "inference_target_image")
-    # spectrogram_to_audio(inf_numpy, "inference_target_audio.wav", 128, 22050)
+        train(config, train_data, val_data)
 
 
 if __name__ == "__main__":
