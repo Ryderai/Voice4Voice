@@ -4,8 +4,29 @@ from typing import Tuple
 import torch
 from torch import nn, Tensor
 import torch.nn.functional as F
+from einops.layers.torch import Rearrange
 import pytorch_lightning as pl
 from utils import audio_to_spectrogram, spectrogram_to_image, spectrogram_to_audio
+
+
+class PatchEmbedding(pl.LightningModule):
+    def __init__(self, patch_size, d_model):
+        super().__init__()
+
+        self.projection = nn.Sequential(
+            nn.Conv2d(
+                1,
+                d_model,
+                kernel_size=(patch_size, d_model),
+                stride=(patch_size, d_model),
+            ),
+            Rearrange("b s h w -> b (h w) s")
+            # Rearrange("b h (w s) -> b (h w) s", s=patch_size),
+            # nn.Linear(patch_size * d_model, d_model),
+        )
+
+    def forward(self, x: Tensor) -> Tensor:
+        return self.projection(x)
 
 
 class PositionalEncoding(pl.LightningModule):
@@ -82,6 +103,7 @@ class TransformerModel(pl.LightningModule):
         self.ntoken = ntoken
 
         self.lr = config["lr"]
+        patch_size = config["patch_size"]
         dropout = config["dropout"]
         nhead = config["nhead"]
         nlayers = config["nlayers"]
@@ -89,15 +111,15 @@ class TransformerModel(pl.LightningModule):
 
         self.start_token_embedding = nn.Linear(1, d_model)
 
-        self.prenet = nn.Sequential(
-            nn.Dropout(dropout),
-            nn.Linear(d_model, d_model),
-            nn.LeakyReLU(leakyness),
-            nn.Dropout(dropout),
-            nn.Linear(d_model, d_model),
-            nn.LeakyReLU(leakyness),
-        )
-
+        # self.prenet = nn.Sequential(
+        #     nn.Dropout(dropout),
+        #     nn.Linear(d_model, d_model),
+        #     nn.LeakyReLU(leakyness),
+        #     nn.Dropout(dropout),
+        #     nn.Linear(d_model, d_model),
+        #     nn.LeakyReLU(leakyness),
+        # )
+        self.patch_embedding = PatchEmbedding(patch_size, d_model)
         # self.pos_embedding = nn.Embedding(ntoken, d_model)
 
         self.transformer = nn.Transformer(
@@ -128,8 +150,10 @@ class TransformerModel(pl.LightningModule):
         src.to(self.device)
         tgt.to(self.device)
 
-        src = self.prenet(src)
-        tgt = self.prenet(tgt)
+        # src = self.prenet(src)
+        # tgt = self.prenet(tgt)
+        src = self.patch_embedding(src)
+        tgt = self.patch_embedding(tgt)
 
         tgt = torch.cat(
             (

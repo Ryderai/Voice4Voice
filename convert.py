@@ -213,25 +213,26 @@ def main() -> None:
     train_size = int(len(data) * 0.8)
     val_size = len(data) - train_size
 
-    for _ in range(25):
+    for _ in range(1):
         train_data, val_data = random_split(data, [train_size, val_size])
         print(len(train_data), len(val_data))
-        config = {
-            "lr": float(np.random.uniform(1e-6, 1e-4)),
-            "dropout": float(np.random.choice([0.0, 0.1, 0.3, 0.5, 0.7])),
-            "nhead": int(np.random.choice([1, 2, 4, 8])),
-            "nlayers": int(np.random.randint(1, 6)),
-            "batch_size": int(np.random.choice([2, 3, 4])),
-            "leaky": float(np.random.choice([0.0, 0.01])),
-        }
         # config = {
-        #     "lr": 1e-4,
-        #     "dropout": 0.3,
-        #     "nhead": 4,
-        #     "nlayers": 5,
-        #     "batch_size": 4,
-        #     "leaky": 0.01,
+        #     "lr": float(np.random.uniform(1e-6, 1e-4)),
+        #     "dropout": float(np.random.choice([0.0, 0.1, 0.3, 0.5, 0.7])),
+        #     "nhead": int(np.random.choice([1, 2, 4, 8])),
+        #     "nlayers": int(np.random.randint(1, 6)),
+        #     "batch_size": int(np.random.choice([2, 3, 4])),
+        #     "leaky": float(np.random.choice([0.0, 0.01])),
         # }
+        config = {
+            "lr": 1e-4,
+            "dropout": 0.3,
+            "nhead": 4,
+            "nlayers": 5,
+            "batch_size": 4,
+            "leaky": 0.01,
+            "patch_size": 8,
+        }
 
         train(config, train_data, val_data)
 
