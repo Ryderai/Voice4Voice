@@ -20,20 +20,22 @@ class PatchEmbedding(pl.LightningModule):
                 kernel_size=(patch_size, d_model),
                 stride=(patch_size, d_model),
             ),
-            Rearrange("b s h w -> b (h w) s")
+            Rearrange("b e h w -> b (w h) e")
             # Rearrange("b h (w s) -> b (h w) s", s=patch_size),
             # nn.Linear(patch_size * d_model, d_model),
         )
 
     def forward(self, x: Tensor) -> Tensor:
-        return self.projection(x)
+        # print(x.shape)
+        # print(self.projection(x).shape)
+        return self.projection(x.unsqueeze(1))
 
 
 class PositionalEncoding(pl.LightningModule):
     dropout: nn.Dropout
     pos_encoding: Tensor
 
-    def __init__(self, dim_model: int, dropout_p: float, max_len: int):
+    def __init__(self, dim_model: int, dropout_p: float, max_len: int, patch_size):
         super().__init__()
         # Modified version from: https://pytorch.org/tutorials/beginner/transformer_tutorial.html
         # max_len determines how far the position can have an effect on a token (window)
@@ -41,6 +43,7 @@ class PositionalEncoding(pl.LightningModule):
         # Info
         self.dim_model = dim_model
         self.dropout = nn.Dropout(dropout_p)
+        max_len //= patch_size
 
         # Encoding - From formula
         pos_encoding = torch.zeros(max_len, dim_model)
@@ -62,6 +65,7 @@ class PositionalEncoding(pl.LightningModule):
         )  # Makes positional encoding apart of model state_dict
 
     def forward(self, token_embedding: Tensor) -> Tensor:
+        print(token_embedding.shape,self.pos_encoding.shape)
         return self.dropout(
             token_embedding * math.sqrt(self.dim_model) + self.pos_encoding
         )
@@ -103,7 +107,7 @@ class TransformerModel(pl.LightningModule):
         self.ntoken = ntoken
 
         self.lr = config["lr"]
-        patch_size = config["patch_size"]
+        self.patch_size = config["patch_size"]
         dropout = config["dropout"]
         nhead = config["nhead"]
         nlayers = config["nlayers"]
@@ -119,9 +123,9 @@ class TransformerModel(pl.LightningModule):
         #     nn.Linear(d_model, d_model),
         #     nn.LeakyReLU(leakyness),
         # )
-        self.patch_embedding = PatchEmbedding(patch_size, d_model)
+        self.patch_embedding = PatchEmbedding(self.patch_size, d_model)
         # self.pos_embedding = nn.Embedding(ntoken, d_model)
-
+        
         self.transformer = nn.Transformer(
             d_model=d_model,
             nhead=nhead,
@@ -142,7 +146,7 @@ class TransformerModel(pl.LightningModule):
         )
 
         # self.fixed_pos_embedding = PositionalEncoding(ntoken, d_model)
-        self.pos_emb_residual = PositionalEncoding(d_model, dropout, ntoken)
+        self.pos_emb_residual = PositionalEncoding(d_model, dropout, ntoken, self.patch_size)
 
     def forward(
         self, src: Tensor, tgt: Tensor, tgt_mask: Tensor
@@ -152,8 +156,10 @@ class TransformerModel(pl.LightningModule):
 
         # src = self.prenet(src)
         # tgt = self.prenet(tgt)
-        src = self.patch_embedding(src)
+        print(src.shape,tgt.shape)
+        src = self.patch_embedding(src) # 4, 8576, 1
         tgt = self.patch_embedding(tgt)
+
 
         tgt = torch.cat(
             (
@@ -222,7 +228,7 @@ class TransformerModel(pl.LightningModule):
         predicted_specs, predicted_stops = self(
             input_tensors,
             output_tensors[:, :-1],
-            self.get_tgt_mask(input_tensors.shape[1]),
+            self.get_tgt_mask(self.ntoken//self.patch_size),
         )
 
         predicted_stops = predicted_stops.squeeze(2)

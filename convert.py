@@ -35,14 +35,14 @@ DEVICE = (
 FREQUENCY_COUNT = 64
 SEQUENCE_LENGTH = 1078  # 173
 SAMPLES = 50
-
+PATCH_LENGTH = 8
 
 class VoiceData(
     Dataset
 ):  # REVIEW CODE FOR EFFICIENCY!!! (Should some of these be on gpu? Like length and stops?) ---> https://discuss.pytorch.org/t/best-way-to-convert-a-list-to-a-tensor/59949/3
     def __init__(self):
-        female1path = "E:/Code/Python/Voice4Voice/cmu_arctic/female1"
-        female2path = "E:/Code/Python/Voice4Voice/cmu_arctic/female2"
+        female1path = "cmu_arctic/female1"
+        female2path = "cmu_arctic/female2"
         # input_audio_files = os.listdir("SoundReader/Artin")
         input_audio_files = os.listdir(female1path)
         _in = [  # Maybe refactor to keep consistent with output? (in = ..., then on a later line do self.input_tensors = in)
@@ -71,7 +71,7 @@ class VoiceData(
         out = [
             torch.tensor(
                 audio_to_spectrogram(
-                    f"{female2path}/{voice}", SEQUENCE_LENGTH - 1, FREQUENCY_COUNT
+                    f"{female2path}/{voice}", SEQUENCE_LENGTH - PATCH_LENGTH, FREQUENCY_COUNT
                 )  # Clips to a sequence length of 1 less than the model to allow for concatenation of start token
             )
             for voice in output_audio_files[:-1]
@@ -123,7 +123,7 @@ class VoiceData(
         )
         self.output_tensors = torch.stack(
             [
-                torch.cat((o, torch.zeros((SEQUENCE_LENGTH - len(o), FREQUENCY_COUNT))))
+                torch.cat((o, torch.zeros((SEQUENCE_LENGTH-PATCH_LENGTH - len(o), FREQUENCY_COUNT))))
                 for o in out
             ]
         )
@@ -231,7 +231,7 @@ def main() -> None:
             "nlayers": 5,
             "batch_size": 4,
             "leaky": 0.01,
-            "patch_size": 8,
+            "patch_size": PATCH_LENGTH,
         }
 
         train(config, train_data, val_data)
