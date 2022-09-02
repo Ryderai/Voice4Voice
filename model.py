@@ -1,4 +1,5 @@
 import math
+from turtle import forward
 from typing import Tuple
 
 import torch
@@ -252,8 +253,63 @@ class TransformerModel(pl.LightningModule):
         ) + F.binary_cross_entropy(predicted_stops, target_stops, reduction="sum")
 
 
-class AutoEncoder(pl.LightningModule):
-    def __init__(self):
+class Encoder(pl.LightningModule):
+    def __init__(self, d_model, conv_width, encoded_dim):
         super().__init__()
 
-        self.encoder = nn.Sequential(nn.Conv2d)
+        self.encoder = nn.Sequential(
+            nn.Conv2d(1, 8, kernel_size=(conv_width, d_model), stride=(1, d_model)),
+            nn.ReLU(),
+            nn.Conv2d(8, 16, kernel_size=(conv_width, d_model), stride=(1, d_model)),
+            nn.BatchNorm2d(16),
+            nn.ReLU(),
+            nn.Conv2d(16, 32, kernel_size=(conv_width, d_model), stride=(1, d_model)),
+            nn.ReLU(),
+        )
+        self.encoder_lin = nn.Sequential(
+            nn.Linear(conv_width * d_model * 32, 128),
+            nn.ReLU(),
+            nn.Linear(128, encoded_dim),
+        )
+
+        self.flatten = nn.Flatten(start_dim=1)
+
+    def forward(self, x: Tensor):
+        x = self.encoder(x)
+        x = self.flatten(x)
+        return self.encoder_lin(x)
+
+
+class Decoder(pl.LightningModule):
+    def __init__(self, d_model, conv_width, encoded_dim):
+        super().__init__()
+
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(
+                32, 16, kernel_size=(conv_width, d_model), stride=(1, d_model)
+            ),
+            nn.BatchNorm2d(16),
+            nn.ReLU(),
+            nn.ConvTranspose2d(
+                16, 8, kernel_size=(conv_width, d_model), stride=(1, d_model)
+            ),
+            nn.BatchNorm2d(8),
+            nn.ReLU(),
+            nn.ConvTranspose2d(
+                8, 1, kernel_size=(conv_width, d_model), stride=(1, d_model)
+            ),
+            # nn.Sigmoid(),
+        )
+
+        self.decoder_lin = nn.Sequential(
+            nn.Linear(encoded_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, conv_width * d_model * 32),
+        )
+
+        self.unflatten = nn.Unflatten(dim=1, unflattened_size=(32, conv_width, d_model))
+
+    def forward(self, x: Tensor):
+        x = self.decoder_lin(x)
+        x = self.unflatten(x)
+        return self.decoder(x)
