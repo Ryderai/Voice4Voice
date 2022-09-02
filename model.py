@@ -65,7 +65,7 @@ class PositionalEncoding(pl.LightningModule):
         )  # Makes positional encoding apart of model state_dict
 
     def forward(self, token_embedding: Tensor) -> Tensor:
-        print(token_embedding.shape,self.pos_encoding.shape)
+        print(token_embedding.shape, self.pos_encoding.shape)
         return self.dropout(
             token_embedding * math.sqrt(self.dim_model) + self.pos_encoding
         )
@@ -125,7 +125,7 @@ class TransformerModel(pl.LightningModule):
         # )
         self.patch_embedding = PatchEmbedding(self.patch_size, d_model)
         # self.pos_embedding = nn.Embedding(ntoken, d_model)
-        
+
         self.transformer = nn.Transformer(
             d_model=d_model,
             nhead=nhead,
@@ -146,7 +146,9 @@ class TransformerModel(pl.LightningModule):
         )
 
         # self.fixed_pos_embedding = PositionalEncoding(ntoken, d_model)
-        self.pos_emb_residual = PositionalEncoding(d_model, dropout, ntoken, self.patch_size)
+        self.pos_emb_residual = PositionalEncoding(
+            d_model, dropout, ntoken, self.patch_size
+        )
 
     def forward(
         self, src: Tensor, tgt: Tensor, tgt_mask: Tensor
@@ -156,10 +158,9 @@ class TransformerModel(pl.LightningModule):
 
         # src = self.prenet(src)
         # tgt = self.prenet(tgt)
-        print(src.shape,tgt.shape)
-        src = self.patch_embedding(src) # 4, 8576, 1
+        print(src.shape, tgt.shape)
+        src = self.patch_embedding(src)  # 4, 8576, 1
         tgt = self.patch_embedding(tgt)
-
 
         tgt = torch.cat(
             (
@@ -228,7 +229,7 @@ class TransformerModel(pl.LightningModule):
         predicted_specs, predicted_stops = self(
             input_tensors,
             output_tensors[:, :-1],
-            self.get_tgt_mask(self.ntoken//self.patch_size),
+            self.get_tgt_mask(self.ntoken // self.patch_size),
         )
 
         predicted_stops = predicted_stops.squeeze(2)
@@ -249,3 +250,10 @@ class TransformerModel(pl.LightningModule):
         return F.mse_loss(
             predicted_specs, output_tensors, reduction="sum"
         ) + F.binary_cross_entropy(predicted_stops, target_stops, reduction="sum")
+
+
+class AutoEncoder(pl.LightningModule):
+    def __init__(self):
+        super().__init__()
+
+        self.encoder = nn.Sequential(nn.Conv2d)
