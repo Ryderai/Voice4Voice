@@ -22,8 +22,8 @@ def spectrogram_to_image(transform: np.ndarray, name: str) -> None:
 
 def audio_to_spectrogram(
     name: str,
-    max_sequence_length: int,
-    max_frequency_length: int,
+    max_sequence_length,
+    max_frequency_length,
 ) -> np.ndarray:  # Get spectrogram and clips to model input size if needed
     y, _ = librosa.load(name)
     stft = librosa.core.stft(y=y, n_fft=512, hop_length=128)

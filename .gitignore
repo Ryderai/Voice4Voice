@@ -1,2 +1,6 @@
 cmu_arctic/
 logs/
+flickr_audio/
+wandb/
+Voice4Voice/
+autoencoder_*
