@@ -7,6 +7,8 @@ from torch.utils.data import random_split
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import RichProgressBar, ModelCheckpoint  # type: ignore
 from pytorch_lightning.loggers import TensorBoardLogger
+from autoencoder import AutoEncoder
+import math
 
 
 # from torch.profiler.profiler import profile
@@ -32,10 +34,14 @@ DEVICE = (
     else "cpu"
 )
 
-FREQUENCY_COUNT = 64
-SEQUENCE_LENGTH = 1078  # 173
+# 1078 is max audio length (in mel frames) from dataset
+FREQUENCY_COUNT = 256
+TOKEN_SEQUENCE_LENGTH = 8
+MAX_SEQUENCE_LENGTH = math.ceil(1078 / TOKEN_SEQUENCE_LENGTH)
+EMBED_SIZE = 125
 SAMPLES = 50
 PATCH_LENGTH = 8
+
 
 class VoiceData(
     Dataset
@@ -43,102 +49,52 @@ class VoiceData(
     def __init__(self):
         female1path = "cmu_arctic/female1"
         female2path = "cmu_arctic/female2"
-        # input_audio_files = os.listdir("SoundReader/Artin")
+        ckpt_path = "Voice4Voice/2wdbt15a/checkpoints/epoch=0-step=12768.ckpt"
+        auto_encoder = AutoEncoder(3, EMBED_SIZE)
+        auto_encoder.load(ckpt_path)
+        # auto_encoder.eval()
+        encoder = auto_encoder.encoder
+        decoder = auto_encoder.decoder
+
         input_audio_files = os.listdir(female1path)
-        _in = [  # Maybe refactor to keep consistent with output? (in = ..., then on a later line do self.input_tensors = in)
-            torch.Tensor(
-                audio_to_spectrogram(
-                    f"{female1path}/{voice}", SEQUENCE_LENGTH, FREQUENCY_COUNT
-                )
-            )
+        self.input_tensors = [
+            encoder(
+                torch.stack(
+                    torch.split(
+                        audio_to_spectrogram(
+                            f"{female1path}/{voice}", None, FREQUENCY_COUNT
+                        ),
+                        TOKEN_SEQUENCE_LENGTH,
+                    )[:-1]
+                ).to(DEVICE)
+            ).cpu()
             for voice in input_audio_files[:-1]
         ]
 
-        self.input_tensors = torch.Tensor(
-            np.array(
-                [
-                    np.concatenate(
-                        (a, np.zeros((SEQUENCE_LENGTH - len(a), FREQUENCY_COUNT)))
-                    )
-                    for a in _in
-                ]
+        self.input_tensors = [
+            torch.cat(
+                (clips, torch.zeros(MAX_SEQUENCE_LENGTH - len(clips), EMBED_SIZE))
             )
-        )
-        # print([a.shape for a in self.input_tensors])
+            for clips in self.input_tensors
+        ]
 
-        # output_audio_files = os.listdir("SoundReader/Ryder")
         output_audio_files = os.listdir(female2path)
-        out = [
-            torch.tensor(
-                audio_to_spectrogram(
-                    f"{female2path}/{voice}", SEQUENCE_LENGTH - PATCH_LENGTH, FREQUENCY_COUNT
-                )  # Clips to a sequence length of 1 less than the model to allow for concatenation of start token
-            )
+        self.output_tensors = [
+            encoder(
+                torch.stack(
+                    torch.split(
+                        audio_to_spectrogram(
+                            f"{female2path}/{voice}", None, FREQUENCY_COUNT
+                        ),
+                        TOKEN_SEQUENCE_LENGTH,
+                    )[:-1]
+                ).to(DEVICE)
+            ).cpu()
             for voice in output_audio_files[:-1]
         ]
 
-        # Initialized list of
-        # print(self.lengths)
-        self.stops = torch.stack(
-            [
-                torch.cat(
-                    (
-                        torch.zeros(len(o)),
-                        torch.Tensor([1]),
-                        torch.zeros(SEQUENCE_LENGTH - (len(o) + 1)),
-                    )
-                )
-                for o in out
-            ]
-        )
-        self.spec_clipping_masks = torch.stack(
-            [
-                torch.cat(
-                    (
-                        torch.zeros(len(o), FREQUENCY_COUNT, dtype=torch.bool),
-                        torch.ones(
-                            SEQUENCE_LENGTH - len(o),
-                            FREQUENCY_COUNT,
-                            dtype=torch.bool,
-                        ),
-                    )
-                )
-                for o in out
-            ]
-        )
-
-        self.stops_clipping_masks = torch.stack(
-            [
-                torch.cat(
-                    (
-                        torch.zeros(len(o) + 1, dtype=torch.bool),
-                        torch.ones(
-                            SEQUENCE_LENGTH - (len(o) + 1),
-                            dtype=torch.bool,
-                        ),
-                    )
-                )
-                for o in out
-            ]
-        )
-        self.output_tensors = torch.stack(
-            [
-                torch.cat((o, torch.zeros((SEQUENCE_LENGTH-PATCH_LENGTH - len(o), FREQUENCY_COUNT))))
-                for o in out
-            ]
-        )
-        # print(self.output_tensors.dtype, self.input_tensors.dtype)
-        # print([o.shape for o in self.output_tensors])
-        # Padding frames
-
     def __getitem__(self, index):
-        return (
-            self.input_tensors[index],
-            self.output_tensors[index],
-            self.stops[index],
-            self.spec_clipping_masks[index],
-            self.stops_clipping_masks[index],
-        )
+        return self.input_tensors[index], self.output_tensors[index]
 
     def __len__(self):
         return len(self.input_tensors)
@@ -176,7 +132,7 @@ def train(config, train_data, val_data, gpus=1):  # train_data, val_data, gpus):
     #     ),
     #     record_shapes=True,
     # ) as prof:
-    model = TransformerModel(config, SEQUENCE_LENGTH, FREQUENCY_COUNT)
+    model = TransformerModel(config, 135, FREQUENCY_COUNT)
 
     name = "".join(f"{k}-{v}_" for k, v in config.items())
 

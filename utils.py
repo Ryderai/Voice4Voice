@@ -3,6 +3,8 @@ import numpy as np
 import librosa
 import librosa.display
 from scipy.io.wavfile import write as waveWrite
+import torch
+import torchaudio
 
 
 def spectrogram_to_image(transform: np.ndarray, name: str) -> None:
@@ -22,14 +24,14 @@ def spectrogram_to_image(transform: np.ndarray, name: str) -> None:
 
 def audio_to_spectrogram(
     name: str,
-    max_sequence_length,
+    token_length,
     max_frequency_length,
-) -> np.ndarray:  # Get spectrogram and clips to model input size if needed
-    y, _ = librosa.load(name)
-    stft = librosa.core.stft(y=y, n_fft=512, hop_length=128)
+) -> torch.Tensor  # Get spectrogram and clips to model input size if needed
+    data, sr = torchaudio.load(name)
+    stft = torch.stft(input=data, n_fft=512, hop_length=128,return_complex=True)
     stft = stft.real
-    stft = np.swapaxes(stft, 0, 1)
-    stft = stft[:max_sequence_length, :max_frequency_length]
+    stft = torch.swapaxes(stft, 0, 1)
+
     return stft
 
 

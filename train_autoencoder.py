@@ -16,7 +16,7 @@ from rich.progress import track
 from rich import print
 from utils import audio_to_spectrogram, spectrogram_to_image, spectrogram_to_audio
 
-SEQUENCE_LENGTH = 64
+TOKEN_SEQUENCE_LENGTH = 8
 FREQUENCY_COUNT = 256
 
 
@@ -25,7 +25,7 @@ class VoiceData(Dataset):
         audio_folder = "flickr_audio/wavs"
         self.audio_tensors = []
         for audio in track(
-            os.listdir(audio_folder)[:5000],
+            os.listdir(audio_folder)[:8000],
             description="Processing data autoencoder...",
         ):
             self.audio_tensors.extend(
@@ -35,7 +35,7 @@ class VoiceData(Dataset):
                             f"{audio_folder}/{audio}", None, FREQUENCY_COUNT
                         )
                     ),
-                    SEQUENCE_LENGTH,
+                    TOKEN_SEQUENCE_LENGTH,
                 )[:-1]
             )
 
@@ -47,7 +47,7 @@ class VoiceData(Dataset):
 
 
 def main() -> None:
-    data_path = f"autoencoder_data_{FREQUENCY_COUNT}_{SEQUENCE_LENGTH}.pt"
+    data_path = f"autoencoder_data_{FREQUENCY_COUNT}_{TOKEN_SEQUENCE_LENGTH}.pkl"
     if not os.path.exists(data_path):
         # print("processing data autoencoder...")
         data = VoiceData()
@@ -56,19 +56,21 @@ def main() -> None:
         print("LOADING PREVIOUSLY PROCESSED AUTOENCODER DATA")
         data = torch.load(data_path)
 
-    train_size = int(len(data) * 0.8)
+    train_size = int(len(data) * 0.9)
     val_size = len(data) - train_size
     train_data, val_data = random_split(data, [train_size, val_size])
     train_dataloader = DataLoader(
         train_data, batch_size=50, shuffle=True, num_workers=0
     )
-    val_dataloader = DataLoader(val_data, batch_size=50, shuffle=True, num_workers=0)
+    val_dataloader = DataLoader(val_data, batch_size=25, shuffle=False, num_workers=0)
 
-    model = AutoEncoder(3, 2000)
+    model = AutoEncoder(3, 125)
     # torch.cuda.empty_cache()
-    wandb_logger = WandbLogger("Voice4Voice")
+    wandb_logger = WandbLogger("VoiceAutoEncoder", project="Voice4Voice")
     wandb_logger.watch(model)
-    trainer = pl.Trainer(callbacks=[RichProgressBar()], gpus=1, logger=wandb_logger)
+    trainer = pl.Trainer(
+        callbacks=[RichProgressBar()], gpus=1, logger=wandb_logger, max_epochs=1
+    )
     trainer.fit(model, train_dataloader, val_dataloader)
 
 

@@ -178,7 +178,7 @@ class TransformerModel(pl.LightningModule):
 
         out = self.transformer(src, tgt, tgt_mask=tgt_mask)
 
-        return self.mel_linear(out), self.stop_linear(out)
+        return self.mel_linear(out)  # , self.stop_linear(out)
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.lr)
@@ -219,35 +219,29 @@ class TransformerModel(pl.LightningModule):
         return loss
 
     def run_model(self, batch):
-        (
-            input_tensors,
-            output_tensors,
-            target_stops,
-            specs_clipping_masks,
-            stops_clipping_masks,
-        ) = batch
+        input_tensors, output_tensors = batch
 
-        predicted_specs, predicted_stops = self(
+        predicted_specs = self(
             input_tensors,
             output_tensors[:, :-1],
             self.get_tgt_mask(self.ntoken // self.patch_size),
         )
 
-        predicted_stops = predicted_stops.squeeze(2)
-        predicted_specs, predicted_stops = torch.stack(
-            [
-                spec.masked_fill(specs_clipping_masks[i], 0)
-                for i, spec in enumerate(predicted_specs)
-            ]
-        ).to(self.device), torch.stack(
-            [
-                stop.masked_fill(stops_clipping_masks[i], 0)
-                for i, stop in enumerate(predicted_stops)
-            ]
-        ).to(
-            self.device
-        )
+        # predicted_stops = predicted_stops.squeeze(2)
+        # predicted_specs, predicted_stops = torch.stack(
+        #     [
+        #         spec.masked_fill(specs_clipping_masks[i], 0)
+        #         for i, spec in enumerate(predicted_specs)
+        #     ]
+        # ).to(self.device), torch.stack(
+        #     [
+        #         stop.masked_fill(stops_clipping_masks[i], 0)
+        #         for i, stop in enumerate(predicted_stops)
+        #     ]
+        # ).to(
+        #     self.device
+        # )
 
         return F.mse_loss(
             predicted_specs, output_tensors, reduction="sum"
-        ) + F.binary_cross_entropy(predicted_stops, target_stops, reduction="sum")
+        )  # + F.binary_cross_entropy(predicted_stops, target_stops, reduction="sum")
