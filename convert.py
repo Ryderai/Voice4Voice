@@ -1,3 +1,4 @@
+from turtle import forward
 import numpy as np
 import os
 import torch
@@ -23,7 +24,8 @@ from model import TransformerModel
 from rich.progress import track
 from rich import print
 from utils import audio_to_spectrogram, spectrogram_to_image, spectrogram_to_audio
-
+import utils
+import torchaudio
 # from torchsummary import summary
 
 DEVICE = (
@@ -36,11 +38,10 @@ DEVICE = (
 
 # 1078 is max audio length (in mel frames) from dataset
 FREQUENCY_COUNT = 256
-TOKEN_SEQUENCE_LENGTH = 8
-MAX_SEQUENCE_LENGTH = math.ceil(1078 / TOKEN_SEQUENCE_LENGTH)
+PATCH_LENGTH = 8
+MAX_SEQUENCE_LENGTH = math.ceil(1078 / PATCH_LENGTH) # 1078/8 = 134.75
 EMBED_SIZE = 125
 SAMPLES = 50
-PATCH_LENGTH = 8
 
 
 class VoiceData(
@@ -50,49 +51,29 @@ class VoiceData(
         female1path = "cmu_arctic/female1"
         female2path = "cmu_arctic/female2"
         ckpt_path = "Voice4Voice/2wdbt15a/checkpoints/epoch=0-step=12768.ckpt"
-        auto_encoder = AutoEncoder(3, EMBED_SIZE)
-        auto_encoder.load(ckpt_path)
+        #auto_encoder = AutoEncoder(3, EMBED_SIZE)
+        #auto_encoder.load(ckpt_path)
         # auto_encoder.eval()
-        encoder = auto_encoder.encoder
-        decoder = auto_encoder.decoder
+        #encoder = auto_encoder.encoder
+        #decoder = auto_encoder.decoder
 
-        input_audio_files = os.listdir(female1path)
-        self.input_tensors = [
-            encoder(
-                torch.stack(
-                    torch.split(
-                        audio_to_spectrogram(
-                            f"{female1path}/{voice}", None, FREQUENCY_COUNT
-                        ),
-                        TOKEN_SEQUENCE_LENGTH,
-                    )[:-1]
-                ).to(DEVICE)
-            ).cpu()
-            for voice in input_audio_files[:-1]
-        ]
+        
+        
+        # covert every wav file in the folder to sequenece of mel spectrograms (ie tokens) then encode each token 
+        load_and_preprocess = torch.nn.Sequential(
+            utils.FolderToPaths(),
+            utils.PathsToSpecs(),
+            utils.SpecsToTokens(PATCH_LENGTH),
+            #utils.EncodeTokens(encoder),
+            #utils.PadToMax(MAX_SEQUENCE_LENGTH),
+        )
 
-        self.input_tensors = [
-            torch.cat(
-                (clips, torch.zeros(MAX_SEQUENCE_LENGTH - len(clips), EMBED_SIZE))
-            )
-            for clips in self.input_tensors
-        ]
+        self.input_tensors = load_and_preprocess(female1path)
+        self.output_tensors = load_and_preprocess(female2path)
 
-        output_audio_files = os.listdir(female2path)
-        self.output_tensors = [
-            encoder(
-                torch.stack(
-                    torch.split(
-                        audio_to_spectrogram(
-                            f"{female2path}/{voice}", None, FREQUENCY_COUNT
-                        ),
-                        TOKEN_SEQUENCE_LENGTH,
-                    )[:-1]
-                ).to(DEVICE)
-            ).cpu()
-            for voice in output_audio_files[:-1]
-        ]
-
+    def collate_fn(batch): # Get rid of PadToMax and add padding only for current batch || DataLoader(dataset,collate_fn=VoiceData.collate_fn)
+        return torch.nn.utils.rnn.pad_sequence(batch, batch_first=True, padding_value=0)
+   
     def __getitem__(self, index):
         return self.input_tensors[index], self.output_tensors[index]
 

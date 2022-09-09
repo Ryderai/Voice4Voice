@@ -5,6 +5,7 @@ import librosa.display
 from scipy.io.wavfile import write as waveWrite
 import torch
 import torchaudio
+import os
 
 
 def spectrogram_to_image(transform: np.ndarray, name: str) -> None:
@@ -21,18 +22,55 @@ def spectrogram_to_image(transform: np.ndarray, name: str) -> None:
     fig.savefig(f"{name}.png")
     plt.close()
 
+def ForwardClassWrapper(func):
+    class ClassWrapper(torch.nn.Sequential):
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
 
-def audio_to_spectrogram(
-    name: str,
-    token_length,
-    max_frequency_length,
-) -> torch.Tensor  # Get spectrogram and clips to model input size if needed
+        def forward(self, x):
+            return func(x, *self.args, **self.kwargs)
+
+        def __call__(self,x,*args,**kwargs):
+            return self.forward(x,*args,**kwargs)
+
+    return ClassWrapper
+
+@ForwardClassWrapper        
+def FolderToPaths(folder):
+    return [f"{folder}/{file}" for file in os.listdir(folder)]
+
+@ForwardClassWrapper
+def PathsToSpecs(paths):
+    specs = [audio_to_spectrogram(path) for path in paths]
+    return specs
+
+@ForwardClassWrapper
+def SpecsToTokens(specs, patch_length):
+    return [torch.stack(torch.split(spec, patch_length,dim=0)[:-1],dim=0) for spec in specs]
+
+@ForwardClassWrapper
+def EncodeTokens(specs, encoder):
+    return [encoder(spec) for spec in specs]
+
+@ForwardClassWrapper
+def PadToMax(specs, max_length):
+    return [torch.cat(
+        (spec, torch.zeros(max_length - spec.shape[-3], spec.shape[-2], spec.shape[-1]))
+    ) for spec in specs]
+
+
+def audio_to_spectrogram(name: str) -> torch.Tensor:
     data, sr = torchaudio.load(name)
+    data = data.squeeze(0)
     stft = torch.stft(input=data, n_fft=512, hop_length=128,return_complex=True)
     stft = stft.real
-    stft = torch.swapaxes(stft, 0, 1)
-
+    stft = torch.swapaxes(stft,0,1)
     return stft
+
+def split_stack(data,split_length):
+    data = torch.split(data, split_length)
+    data = torch.stack(data)
 
 
 def spectrogram_to_audio(arr: np.ndarray, name: str, hop_length: int, sr: int) -> None:
