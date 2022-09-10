@@ -72,6 +72,7 @@ def main() -> None:
         callbacks=[RichProgressBar()], gpus=1, logger=wandb_logger, max_epochs=1
     )
     trainer.fit(model, train_dataloader, val_dataloader)
+    torch.save(model.state_dict(), "autoencoder.pt")
 
 
 if __name__ == "__main__":

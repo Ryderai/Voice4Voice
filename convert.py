@@ -7,7 +7,7 @@ from torch import Tensor
 from torch.utils.data import random_split
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import RichProgressBar, ModelCheckpoint  # type: ignore
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import WandbLogger
 from autoencoder import AutoEncoder
 import math
 
@@ -26,6 +26,7 @@ from rich import print
 from utils import audio_to_spectrogram, spectrogram_to_image, spectrogram_to_audio
 import utils
 import torchaudio
+
 # from torchsummary import summary
 
 DEVICE = (
@@ -39,41 +40,39 @@ DEVICE = (
 # 1078 is max audio length (in mel frames) from dataset
 FREQUENCY_COUNT = 256
 PATCH_LENGTH = 8
-MAX_SEQUENCE_LENGTH = math.ceil(1078 / PATCH_LENGTH) # 1078/8 = 134.75
+MAX_SEQUENCE_LENGTH = math.ceil(1078 / PATCH_LENGTH)  # 1078/8 = 134.75
 EMBED_SIZE = 125
 SAMPLES = 50
 
 
-class VoiceData(
-    Dataset
-):  # REVIEW CODE FOR EFFICIENCY!!! (Should some of these be on gpu? Like length and stops?) ---> https://discuss.pytorch.org/t/best-way-to-convert-a-list-to-a-tensor/59949/3
+class VoiceData(Dataset):
+    # REVIEW CODE FOR EFFICIENCY!!! (Should some of these be on gpu? Like length and stops?) ---> https://discuss.pytorch.org/t/best-way-to-convert-a-list-to-a-tensor/59949/3
     def __init__(self):
         female1path = "cmu_arctic/female1"
         female2path = "cmu_arctic/female2"
-        ckpt_path = "Voice4Voice/2wdbt15a/checkpoints/epoch=0-step=12768.ckpt"
-        #auto_encoder = AutoEncoder(3, EMBED_SIZE)
-        #auto_encoder.load(ckpt_path)
-        # auto_encoder.eval()
-        #encoder = auto_encoder.encoder
-        #decoder = auto_encoder.decoder
+        ckpt_path = "autoencoder.pt"
+        auto_encoder = AutoEncoder(3, EMBED_SIZE)
+        auto_encoder.load(ckpt_path)
+        encoder = auto_encoder.encoder
+        decoder = auto_encoder.decoder
 
-        
-        
-        # covert every wav file in the folder to sequenece of mel spectrograms (ie tokens) then encode each token 
+        # covert every wav file in the folder to sequenece of mel spectrograms (ie tokens) then encode each token
         load_and_preprocess = torch.nn.Sequential(
             utils.FolderToPaths(),
             utils.PathsToSpecs(),
             utils.SpecsToTokens(PATCH_LENGTH),
-            #utils.EncodeTokens(encoder),
-            #utils.PadToMax(MAX_SEQUENCE_LENGTH),
+            utils.EncodeTokens(encoder),
+            utils.PadToMax(MAX_SEQUENCE_LENGTH),
         )
 
         self.input_tensors = load_and_preprocess(female1path)
         self.output_tensors = load_and_preprocess(female2path)
 
-    def collate_fn(batch): # Get rid of PadToMax and add padding only for current batch || DataLoader(dataset,collate_fn=VoiceData.collate_fn)
+    @staticmethod
+    def collate_fn(batch):
+        # Get rid of PadToMax and add padding only for current batch || DataLoader(dataset,collate_fn=VoiceData.collate_fn)
         return torch.nn.utils.rnn.pad_sequence(batch, batch_first=True, padding_value=0)
-   
+
     def __getitem__(self, index):
         return self.input_tensors[index], self.output_tensors[index]
 
@@ -101,10 +100,18 @@ def predict(model: TransformerModel, input_tensor: Tensor, sequence_length, mode
 def train(config, train_data, val_data, gpus=1):  # train_data, val_data, gpus):
 
     train_dataloader = DataLoader(
-        train_data, batch_size=config["batch_size"], shuffle=True, num_workers=0
+        train_data,
+        batch_size=config["batch_size"],
+        shuffle=True,
+        num_workers=0,
+        # collate_fn=VoiceData.collate_fn,
     )
     val_dataloader = DataLoader(
-        val_data, batch_size=config["batch_size"], shuffle=True, num_workers=0
+        val_data,
+        batch_size=config["batch_size"],
+        shuffle=True,
+        num_workers=0,
+        # collate_fn=VoiceData.collate_fn,
     )
     # with torch.profiler.profiler.profile(
     #     schedule=torch.profiler.profiler.schedule(wait=1, warmup=1, active=5),
@@ -113,23 +120,24 @@ def train(config, train_data, val_data, gpus=1):  # train_data, val_data, gpus):
     #     ),
     #     record_shapes=True,
     # ) as prof:
-    model = TransformerModel(config, 135, FREQUENCY_COUNT)
+    model = TransformerModel(config, MAX_SEQUENCE_LENGTH, EMBED_SIZE)
 
-    name = "".join(f"{k}-{v}_" for k, v in config.items())
+    # name = "".join(f"{k}-{v}_" for k, v in config.items())
 
-    if os.path.exists(f"logs/{name}"):
-        print("ALREADY EXISTS!!!")
-        return
-    else:
-        logger = TensorBoardLogger("logs", name)
+    # if os.path.exists(f"logs/{name}"):
+    #     print("ALREADY EXISTS!!!")
+    #     return
+    # else:
+    #     logger = TensorBoardLogger("logs", name)
+    logger = WandbLogger("Transformer", project="Voice4Voice")
+    logger.watch(model)
 
     trainer = pl.Trainer(
         callbacks=RichProgressBar(),
         gpus=gpus,
         logger=logger,
         log_every_n_steps=11,
-        max_epochs=1,
-        profiler="pytorch",
+        max_epochs=8,
     )
     trainer.fit(model, train_dataloader, val_dataloader)
 
@@ -147,7 +155,7 @@ def main() -> None:
         print("LOADING PREVIOUSLY PROCESSED DATA")
         data = torch.load(data_path)
 
-    train_size = int(len(data) * 0.8)
+    train_size = int(len(data) * 0.9)
     val_size = len(data) - train_size
 
     for _ in range(1):
@@ -164,7 +172,7 @@ def main() -> None:
         config = {
             "lr": 1e-4,
             "dropout": 0.3,
-            "nhead": 4,
+            "nhead": 5,
             "nlayers": 5,
             "batch_size": 4,
             "leaky": 0.01,

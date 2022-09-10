@@ -115,11 +115,12 @@ class AutoEncoder(pl.LightningModule):
 
     def validation_step(self, batch: Tensor, batch_idx):
         reconstructions: Tensor = self(batch)
-        # print(reconstructions.shape, batch.shape)
+        # if self.global_step % 1000 == 0:
+        #     torch.save(self.state_dict(), "autoencoder.pt")
         loss = F.mse_loss(rearrange(reconstructions, "b c w h -> (c b) w h"), batch)
         self.log("val_loss", loss)
 
         return loss
 
     def load(self, path):
-        self.load_from_checkpoint(path)
+        self.load_state_dict(torch.load(path))

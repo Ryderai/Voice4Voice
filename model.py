@@ -5,6 +5,7 @@ from typing import Tuple
 import torch
 from torch import nn, Tensor
 import torch.nn.functional as F
+from rich import print
 from einops.layers.torch import Rearrange
 import pytorch_lightning as pl
 from utils import audio_to_spectrogram, spectrogram_to_image, spectrogram_to_audio
@@ -36,25 +37,25 @@ class PositionalEncoding(pl.LightningModule):
     dropout: nn.Dropout
     pos_encoding: Tensor
 
-    def __init__(self, dim_model: int, dropout_p: float, max_len: int, patch_size):
+    def __init__(self, dim_model: int, dropout_p: float, max_len: int):
         super().__init__()
         # Modified version from: https://pytorch.org/tutorials/beginner/transformer_tutorial.html
         # max_len determines how far the position can have an effect on a token (window)
 
         # Info
+        if dim_model % 2 != 0:
+            dim_model += 1
         self.dim_model = dim_model
         self.dropout = nn.Dropout(dropout_p)
-        max_len //= patch_size
-
+        # print(max_len, self.dim_model)
         # Encoding - From formula
         pos_encoding = torch.zeros(max_len, dim_model)
-        positions_list = torch.arange(0, max_len, dtype=torch.float).view(
-            -1, 1
-        )  # 0, 1, 2, 3, 4, 5
+        positions_list = torch.arange(0, max_len, dtype=torch.float).view(-1, 1)
+        # 0, 1, 2, 3, 4, 5
         division_term = torch.exp(
             torch.arange(0, dim_model, 2).float() * (-math.log(10000.0)) / dim_model
         )  # 1000^(2i/dim_model)
-
+        # print(positions_list.shape, division_term.shape)
         # PE(pos, 2i) = sin(pos/1000^(2i/dim_model))
         pos_encoding[:, 0::2] = torch.sin(positions_list * division_term)
 
@@ -66,9 +67,10 @@ class PositionalEncoding(pl.LightningModule):
         )  # Makes positional encoding apart of model state_dict
 
     def forward(self, token_embedding: Tensor) -> Tensor:
-        print(token_embedding.shape, self.pos_encoding.shape)
+        # print(token_embedding.shape, self.pos_encoding.shape)
         return self.dropout(
-            token_embedding * math.sqrt(self.dim_model) + self.pos_encoding
+            token_embedding * math.sqrt(self.dim_model)
+            + self.pos_encoding[:, : token_embedding.shape[-1]]
         )
 
 
@@ -104,6 +106,7 @@ class TransformerModel(pl.LightningModule):
         d_model: int,
     ):
         super().__init__()
+        self.save_hyperparameters()
         self.d_model = d_model
         self.ntoken = ntoken
 
@@ -124,7 +127,7 @@ class TransformerModel(pl.LightningModule):
         #     nn.Linear(d_model, d_model),
         #     nn.LeakyReLU(leakyness),
         # )
-        self.patch_embedding = PatchEmbedding(self.patch_size, d_model)
+        # self.patch_embedding = PatchEmbedding(self.patch_size, d_model)
         # self.pos_embedding = nn.Embedding(ntoken, d_model)
 
         self.transformer = nn.Transformer(
@@ -147,9 +150,7 @@ class TransformerModel(pl.LightningModule):
         )
 
         # self.fixed_pos_embedding = PositionalEncoding(ntoken, d_model)
-        self.pos_emb_residual = PositionalEncoding(
-            d_model, dropout, ntoken, self.patch_size
-        )
+        self.pos_emb_residual = PositionalEncoding(d_model, dropout, ntoken)
 
     def forward(
         self, src: Tensor, tgt: Tensor, tgt_mask: Tensor
@@ -159,9 +160,9 @@ class TransformerModel(pl.LightningModule):
 
         # src = self.prenet(src)
         # tgt = self.prenet(tgt)
-        print(src.shape, tgt.shape)
-        src = self.patch_embedding(src)  # 4, 8576, 1
-        tgt = self.patch_embedding(tgt)
+        # print(src.shape, tgt.shape)
+        # src = self.patch_embedding(src)  # 4, 8576, 1
+        # tgt = self.patch_embedding(tgt)
 
         tgt = torch.cat(
             (
@@ -224,7 +225,7 @@ class TransformerModel(pl.LightningModule):
         predicted_specs = self(
             input_tensors,
             output_tensors[:, :-1],
-            self.get_tgt_mask(self.ntoken // self.patch_size),
+            self.get_tgt_mask(self.ntoken),
         )
 
         # predicted_stops = predicted_stops.squeeze(2)
@@ -243,5 +244,6 @@ class TransformerModel(pl.LightningModule):
         # )
 
         return F.mse_loss(
-            predicted_specs, output_tensors, reduction="sum"
+            predicted_specs,
+            output_tensors,  # reduction="sum"
         )  # + F.binary_cross_entropy(predicted_stops, target_stops, reduction="sum")

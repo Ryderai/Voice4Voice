@@ -3,6 +3,7 @@ import numpy as np
 import librosa
 import librosa.display
 from scipy.io.wavfile import write as waveWrite
+from rich import print
 import torch
 import torchaudio
 import os
@@ -22,6 +23,7 @@ def spectrogram_to_image(transform: np.ndarray, name: str) -> None:
     fig.savefig(f"{name}.png")
     plt.close()
 
+
 def ForwardClassWrapper(func):
     class ClassWrapper(torch.nn.Sequential):
         def __init__(self, *args, **kwargs):
@@ -31,44 +33,60 @@ def ForwardClassWrapper(func):
         def forward(self, x):
             return func(x, *self.args, **self.kwargs)
 
-        def __call__(self,x,*args,**kwargs):
-            return self.forward(x,*args,**kwargs)
+        def __call__(self, x, *args, **kwargs):
+            return self.forward(x, *args, **kwargs)
 
     return ClassWrapper
 
-@ForwardClassWrapper        
+
+@ForwardClassWrapper
 def FolderToPaths(folder):
     return [f"{folder}/{file}" for file in os.listdir(folder)]
 
+
 @ForwardClassWrapper
 def PathsToSpecs(paths):
-    specs = [audio_to_spectrogram(path) for path in paths]
-    return specs
+    return [audio_to_spectrogram(path) for path in paths]
+
 
 @ForwardClassWrapper
 def SpecsToTokens(specs, patch_length):
-    return [torch.stack(torch.split(spec, patch_length,dim=0)[:-1],dim=0) for spec in specs]
+    return [
+        torch.stack(torch.split(spec, patch_length, dim=0)[:-1], dim=0)
+        for spec in specs
+    ]
+
 
 @ForwardClassWrapper
 def EncodeTokens(specs, encoder):
+    print(specs[0].shape)
     return [encoder(spec) for spec in specs]
+
 
 @ForwardClassWrapper
 def PadToMax(specs, max_length):
-    return [torch.cat(
-        (spec, torch.zeros(max_length - spec.shape[-3], spec.shape[-2], spec.shape[-1]))
-    ) for spec in specs]
+    print(specs[0].shape)
+    return [
+        torch.cat(
+            (
+                spec,
+                torch.zeros(max_length - spec.shape[-2], spec.shape[-1]),
+            )
+        )
+        for spec in specs
+    ]
 
 
 def audio_to_spectrogram(name: str) -> torch.Tensor:
     data, sr = torchaudio.load(name)
     data = data.squeeze(0)
-    stft = torch.stft(input=data, n_fft=512, hop_length=128,return_complex=True)
+    stft = torch.stft(input=data, n_fft=512, hop_length=128, return_complex=True)
     stft = stft.real
-    stft = torch.swapaxes(stft,0,1)
+    stft = torch.swapaxes(stft, 0, 1)[:, :256]
     return stft
 
-def split_stack(data,split_length):
+
+def split_stack(data, split_length):
     data = torch.split(data, split_length)
     data = torch.stack(data)
 
